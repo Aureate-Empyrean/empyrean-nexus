@@ -1,0 +1,13 @@
+{
+  "name": "empyrean-nexus-ui",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "scripts": {
+    "test": "node --test tests/frontend.test.mjs",
+    "check": "node --check frontend/app.js && node --check frontend/router.js && node --check frontend/motion.js"
+  },
+  "devDependencies": {
+    "jsdom": "30.1.1"
+  }
+}

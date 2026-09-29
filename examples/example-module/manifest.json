@@ -1,0 +1,52 @@
+{
+  "protocol": 1,
+  "id": "empyrean-example",
+  "name": "Empyrean Example Module",
+  "description": "Disposable reference module for testing the Nexus contract.",
+  "version": "0.1.1",
+  "publisher": {
+    "name": "Aureate Empyrean",
+    "originalAuthors": [
+      "Aureate Empyrean contributors"
+    ]
+  },
+  "repository": "https://github.com/aureate-empyrean/empyrean-nexus",
+  "license": "AGPL-3.0-or-later",
+  "nexus": ">=0.1.1,<0.2.0",
+  "container": {
+    "image": "empyrean-example:0.1.1",
+    "port": 13333
+  },
+  "capabilities": [
+    "events.publish",
+    "events.subscribe",
+    "notifications.publish",
+    "references.create",
+    "references.read",
+    "references.resolve"
+  ],
+  "routes": {
+    "ui": "/",
+    "api": "/api",
+    "health": "/health"
+  },
+  "events": {
+    "produces": [
+      "empyrean-example.ping"
+    ],
+    "consumes": [
+      "empyrean-example.ping"
+    ]
+  },
+  "resources": [
+    {
+      "type": "item",
+      "resolvable": true
+    }
+  ],
+  "references": {
+    "version": 1,
+    "read": [],
+    "resolve": []
+  }
+}

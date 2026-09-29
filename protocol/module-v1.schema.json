@@ -1,0 +1,352 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "protocol": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 48,
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+      "not": {
+        "const": "nexus"
+      }
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.-]+)?$"
+    },
+    "publisher": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "originalAuthors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "uniqueItems": true,
+          "maxItems": 10
+        }
+      },
+      "required": [
+        "name",
+        "originalAuthors"
+      ]
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "homepage": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "format": "uri",
+      "pattern": "^https://"
+    },
+    "nexus": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "container": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "port": {
+          "type": "integer",
+          "enum": [
+            13333,
+            14333,
+            15333,
+            16333,
+            17333,
+            18333,
+            19333,
+            20333,
+            21333,
+            22333,
+            23333,
+            24333,
+            25333,
+            26333,
+            27333,
+            28333,
+            29333,
+            30333,
+            31333,
+            32333,
+            33333,
+            34333,
+            35333,
+            36333,
+            37333,
+            38333,
+            39333,
+            40333,
+            41333,
+            42333,
+            43333,
+            44333,
+            45333,
+            46333,
+            47333,
+            48333,
+            49333,
+            50333,
+            51333,
+            52333,
+            53333,
+            54333,
+            55333,
+            56333,
+            57333,
+            58333,
+            59333,
+            60333,
+            61333,
+            62333,
+            63333,
+            64333,
+            65333
+          ]
+        }
+      },
+      "required": [
+        "image",
+        "port"
+      ]
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "events.publish",
+          "events.subscribe",
+          "notifications.publish",
+          "references.create",
+          "references.read",
+          "references.resolve"
+        ]
+      },
+      "uniqueItems": true,
+      "maxItems": 6
+    },
+    "routes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ui": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^/[a-zA-Z0-9/_-]*$"
+        },
+        "api": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^/[a-zA-Z0-9/_-]*$"
+        },
+        "health": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^/[a-zA-Z0-9/_-]*$"
+        }
+      },
+      "required": [
+        "ui",
+        "api",
+        "health"
+      ]
+    },
+    "events": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "produces": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9_-]*)+$"
+          },
+          "uniqueItems": true,
+          "maxItems": 32
+        },
+        "consumes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9_-]*)+$"
+          },
+          "uniqueItems": true,
+          "maxItems": 32
+        }
+      },
+      "required": [
+        "produces",
+        "consumes"
+      ]
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "format": "uri",
+          "pattern": "^https://"
+        }
+      },
+      "required": [
+        "url"
+      ]
+    },
+    "references": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "read",
+        "resolve"
+      ],
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "read": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "module",
+              "type"
+            ],
+            "properties": {
+              "module": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+                "maxLength": 48
+              },
+              "type": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+                "maxLength": 48
+              }
+            }
+          }
+        },
+        "resolve": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "module",
+              "type"
+            ],
+            "properties": {
+              "module": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+                "maxLength": 48
+              },
+              "type": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+                "maxLength": 48
+              }
+            }
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "resolvable"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+            "maxLength": 48
+          },
+          "resolvable": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  },
+  "required": [
+    "protocol",
+    "id",
+    "name",
+    "description",
+    "version",
+    "publisher",
+    "repository",
+    "license",
+    "nexus",
+    "container",
+    "capabilities",
+    "routes",
+    "events"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aureate-empyrean.org/protocol/module-v1.schema.json",
+  "title": "Empyrean Module Protocol v1"
+}

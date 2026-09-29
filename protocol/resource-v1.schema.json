@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Empyrean Resource Identity v1",
+  "type": "string",
+  "maxLength": 235,
+  "pattern": "^nexus:v1:(?=[a-z0-9-]{1,48}:)[a-z][a-z0-9]*(-[a-z0-9]+)*:(?=[a-z0-9-]{1,48}:)[a-z][a-z0-9]*(-[a-z0-9]+)*:[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$(?![\\s\\S])",
+  "description": "Installation-scoped identity; module and type components each have a 48-character semantic limit. No percent decoding or UI-route interpretation."
+}

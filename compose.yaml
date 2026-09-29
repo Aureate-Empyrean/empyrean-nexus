@@ -1,0 +1,85 @@
+name: ${NEXUS_INSTALLATION:-nexus}
+services:
+  nexus:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    image: empyrean-nexus:0.1.1
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${NEXUS_BIND:-127.0.0.1}:${NEXUS_PORT:-12333}:12333"
+    environment:
+      NEXUS_DATA: /data
+      NEXUS_ALLOWED_ORIGINS: ${NEXUS_ALLOWED_ORIGINS:-}
+      NEXUS_PUBLIC_ORIGIN: ${NEXUS_PUBLIC_ORIGIN:-http://localhost:12333}
+      NEXUS_ALLOW_EXAMPLE: ${NEXUS_ALLOW_EXAMPLE:-1}
+      NEXUS_BROKER_SOCKET: /run/nexus/broker.sock
+    labels:
+      org.aureate-empyrean.nexus.gateway: ${NEXUS_INSTALLATION:-nexus}
+    volumes:
+      - nexus-data:/data
+      - broker-control:/run/nexus:ro
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16777216,uid=10001,gid=10001"]
+    mem_limit: 512m
+    pids_limit: 128
+    depends_on:
+      broker:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:12333/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+  broker:
+    image: empyrean-nexus:0.1.1
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    user: "0:0"
+    command: [python, deploy/broker-entrypoint.py]
+    restart: unless-stopped
+    init: true
+    network_mode: none
+    environment:
+      NEXUS_INSTALLATION: ${NEXUS_INSTALLATION:-nexus}
+      NEXUS_ALLOW_EXAMPLE: ${NEXUS_ALLOW_EXAMPLE:-1}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - broker-control:/run/nexus
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    # Trusted Docker controller only: SELinux confinement otherwise denies the daemon socket.
+    # Never apply this exception to Nexus or module containers.
+    security_opt: ["no-new-privileges:true", "label:disable"]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16777216"]
+    mem_limit: 256m
+    pids_limit: 64
+    healthcheck:
+      test: [CMD, python, -c, "import socket; s=socket.socket(socket.AF_UNIX); s.connect('/run/nexus/broker.sock'); s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "2"}
+  example:
+    profiles: [example]
+    build:
+      context: .
+      dockerfile: examples/example-module/Dockerfile
+    image: empyrean-example:0.1.1
+    # Build target only. The broker creates actual module containers.
+    entrypoint: [python, -c, "print('Reference image built; install its manifest in Nexus.')"]
+    network_mode: none
+volumes:
+  nexus-data:
+  broker-control:
