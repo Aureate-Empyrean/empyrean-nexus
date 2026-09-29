@@ -729,7 +729,8 @@ def create_app(data_dir=None, runtime=None, transport=None):
             conn.execute("UPDATE notifications SET read=1")
         return {"ok": True}
 
-    @app.get("/api/v1/activity")
+    @app.get("/api/v1/activity", deprecated=True)
+    @app.get("/api/v1/activity/entries")
     def activity(
         before: int | None = Query(None, ge=1),
         limit: int = Query(50, ge=1, le=100),

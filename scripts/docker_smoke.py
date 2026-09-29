@@ -137,7 +137,7 @@ def main():
         )
         for path in ["overview", "modules", "settings", "activity", "modules/" + module_id]:
             assert client.get("/app/" + path).status_code == 200
-        assert check(client.get("/api/v1/activity"))["items"]
+        assert check(client.get("/api/v1/activity/entries"))["items"]
         # Recreate the gateway while preserving owner/session and module container.
         run("up", "-d", "--force-recreate", "--no-deps", "--wait", "nexus")
         assert check(client.get(f"/modules/{module_id}/api/info"))["nexus"]["id"] == module_id

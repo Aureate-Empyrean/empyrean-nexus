@@ -273,11 +273,22 @@ def test_spa_routes_and_real_activity(owner):
         response = client.get(route)
         assert response.status_code == 200 and 'type="module"' in response.text
     assert client.get("/api/v1/missing").status_code == 404
-    activity = client.get("/api/v1/activity?limit=1").json()
+    activity = client.get("/api/v1/activity/entries?limit=1").json()
     assert activity["items"][0]["kind"] == "setup.completed"
     assert activity["items"][0]["actor"] == "owner"
     client.patch("/api/v1/settings", json={"installation_name": "Changed"})
-    newest = client.get("/api/v1/activity?limit=1").json()
+    newest = client.get("/api/v1/activity/entries?limit=1").json()
     assert newest["items"][0]["kind"] == "settings.changed" and newest["has_more"]
-    older = client.get("/api/v1/activity", params={"before": newest["next_cursor"]}).json()
+    older = client.get("/api/v1/activity/entries", params={"before": newest["next_cursor"]}).json()
     assert older["items"][0]["kind"] == "setup.completed"
+
+
+def test_activity_entries_require_owner_and_preserve_legacy_contract(owner):
+    client, _, _, _, _ = owner
+    response = client.get("/api/v1/activity/entries")
+    assert response.status_code == 200
+    assert response.json() == client.get("/api/v1/activity").json()
+    assert response.json()["items"][0]["kind"] == "setup.completed"
+    client.cookies.clear()
+    assert client.get("/api/v1/activity/entries").status_code == 401
+    assert client.get("/api/v1/activity").status_code == 401

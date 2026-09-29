@@ -207,7 +207,7 @@ async function renderView({ transition = false, focus = false, changed = null, a
   else if (view.name === 'activity') {
     content.innerHTML = heading('Activity') + skeleton();
     try {
-      const data = await api('/activity');
+      const data = await api('/activity/entries');
       if (epoch !== renderEpoch) return;
       renderActivity(content, data);
     } catch (error) { if (epoch === renderEpoch) content.innerHTML = heading('Activity') + `<p role="alert" class="error-text">${esc(error.message)}</p>`; }
@@ -354,7 +354,7 @@ function renderActivity(content, data) {
   if (data.has_more) {
     const button = action('Load earlier activity', async () => {
       const epoch = renderEpoch;
-      const page = await api('/activity?before=' + cursor);
+      const page = await api('/activity/entries?before=' + cursor);
       if (epoch !== renderEpoch) return;
       append(page.items); cursor = page.next_cursor;
       if (!page.has_more) button.remove();

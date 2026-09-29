@@ -90,6 +90,10 @@ async function harness(path='/app/overview', update={status:'not_checked',discov
   const modules=[{id:'test-module',state:'enabled',health:'healthy',manifest:{id:'test-module',name:'Test module',version:'1.0.0',routes:{api:'/api'},capabilities:[]},provenance:{status:'community'}}];
   globalThis.fetch=async (url,options={})=>{
     calls.push([url,options.method||'GET']);
+    // EasyPrivacy: /api/v1/activity|$~third-party,xmlhttprequest
+    if (new URL(url, location.origin).href.endsWith('/api/v1/activity')) {
+      throw new TypeError('NetworkError when attempting to fetch resource.');
+    }
     let data;
     if(url==='/api/v1/setup')data={required:false};
     else if(url==='/api/v1/auth/session')data={username:'owner',csrf:'test-token'};
@@ -97,7 +101,8 @@ async function harness(path='/app/overview', update={status:'not_checked',discov
     else if(url==='/api/v1/modules')data=modules;
     else if(url==='/api/v1/notifications')data=records;
     else if(url==='/api/v1/notifications/read'){records[0].read=1;data={ok:true};}
-    else if(url==='/api/v1/activity')data={items:[{id:1,kind:'module.enable.completed',subject:'test-module',actor:'owner',occurred_at:'2026-09-29T12:00:00Z'}],next_cursor:1,has_more:false};
+    else if(url==='/api/v1/activity/entries')data={items:[{id:2,kind:'module.enable.completed',subject:'test-module',actor:'owner',occurred_at:'2026-09-29T12:00:00Z'}],next_cursor:2,has_more:true};
+    else if(url==='/api/v1/activity/entries?before=2')data={items:[{id:1,kind:'setup.completed',subject:'nexus',actor:'owner',occurred_at:'2026-09-29T11:00:00Z'}],next_cursor:1,has_more:false};
     else throw new Error('Unexpected test request '+url);
     return {ok:true,status:200,json:async()=>structuredClone(data)};
   };
@@ -163,12 +168,21 @@ test('release controls never invent an update or execute one', async()=>{
   } finally {h.close();}
 });
 
-test('Activity renders supplied operational data and remains outside module navigation', async()=>{
+test('Activity loads, paginates and refreshes with the EasyPrivacy endpoint filter active', async()=>{
   const h=await harness('/app/activity');
   try {
     await until(()=>document.querySelector('.activity-row'));
     assert.match(document.querySelector('.activity-row').textContent,/Enable · completed/);
     assert.equal(document.querySelectorAll('.activity-row').length,1);
+    document.querySelector('#activity-more button').click();
+    await until(()=>document.querySelectorAll('.activity-row').length===2);
+    assert.match(document.querySelector('#activity-list').textContent,/Installation initialized/);
+    assert.equal(document.querySelector('#activity-more button'),null);
+    document.querySelector('#heading-action button').click();
+    await until(()=>document.querySelectorAll('.activity-row').length===1);
+    assert.equal(h.calls.filter(([path])=>path==='/api/v1/activity/entries').length,2);
+    assert.ok(h.calls.some(([path])=>path==='/api/v1/activity/entries?before=2'));
+    assert.equal(document.querySelector('[role=alert]'),null);
     assert.equal(document.querySelector('.nav').textContent.includes('Test module'),false);
   } finally {h.close();}
 });

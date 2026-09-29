@@ -41,6 +41,8 @@ Common responses: 401 authentication required, 403 origin/CSRF/capability reject
 - `GET /api/v1/module/references?resource=...&direction=incoming|outgoing&after=0&limit=50`: filtered backlinks/outgoing relationships.
 - `POST /api/v1/module/resources/resolve`: resolve `{resource}` through its owner, separately authorized.
 - `GET /api/v1/references`: owner inspection with the same query parameters.
-- `GET /api/v1/activity?before=<id>&limit=50`: newest-first operational records adapted from the audit log; returns `items`, `next_cursor`, `has_more`. Each item has `id`, `kind`, `subject`, `actor`, `occurred_at`.
+- `GET /api/v1/activity/entries?before=<id>&limit=50`: newest-first operational records adapted from the audit log; returns `items`, `next_cursor`, `has_more`. Each item has `id`, `kind`, `subject`, `actor`, `occurred_at`.
 
 See [reference contract](cross-module-references.md) for exact identity, sharing, resolution and lifecycle behavior. The export now includes a `references` array and excludes resolver credentials. `POST /modules/validate` also reports `retained_references`; reinstalling such an identity needs explicit `reuse_reference_identity: true` alongside the manifest/grants.
+
+The Activity UI uses `/api/v1/activity/entries`. The original `/api/v1/activity` remains a deprecated alias: its exact path collides with an EasyPrivacy tracking filter and can be blocked by browser content blockers before reaching Nexus. Both endpoints read the same persisted audit records and require an owner session.
