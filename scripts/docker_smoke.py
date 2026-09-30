@@ -113,7 +113,9 @@ def main():
             if check(client.post(f"/api/v1/modules/{peer_id}/health"))["status"] == "healthy":
                 break
             time.sleep(0.5)
-        target = f"nexus:v1:{peer_id}:item:sample"
+        # Same derivation as the reference module: a stable UUID per module identity.
+        peer_item = uuid.uuid5(uuid.NAMESPACE_URL, "urn:aureate-empyrean:example:" + peer_id)
+        target = f"nexus:v1:{peer_id}:item:{peer_item}"
         private = check(client.post(f"/modules/{module_id}/api/reference", json={"target": target}))
         assert private["created"]
         assert check(client.get(f"/modules/{peer_id}/api/backlinks"))["references"] == []
@@ -124,6 +126,9 @@ def main():
         )
         assert not shared["created"]
         assert len(check(client.get(f"/modules/{peer_id}/api/backlinks"))["references"]) == 1
+        # The derived index is rebuilt from the owner's enumeration without changing anything.
+        summary = check(client.post(f"/api/v1/modules/{module_id}/references/reconcile"))
+        assert (summary["added"], summary["removed"], summary["unchanged"]) == (0, 0, 1), summary
         resolved = check(
             client.post(f"/modules/{module_id}/api/resolve", json={"resource": target})
         )
@@ -164,7 +169,7 @@ def main():
         assert check(client.get("/api/v1/modules")) == []
         assert check(client.get("/healthz"))["status"] == "ok"
         print(
-            "PASS: setup, login, manifest, install, enable, health, gateway, API, event publish/consume, notification, private/shared cross-module backlinks, authenticated resolution, retained unresolved references, SPA routes, activity, gateway recreation, disable, uninstall, Nexus health"
+            "PASS: setup, login, manifest, install, enable, health, gateway, API, event publish/consume, notification, private/shared cross-module backlinks, reference reconciliation, authenticated resolution, retained unresolved references, SPA routes, activity, gateway recreation, disable, uninstall, Nexus health"
         )
     except Exception:
         run("logs", "--tail", "80")

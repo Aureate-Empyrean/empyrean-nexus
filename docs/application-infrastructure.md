@@ -25,8 +25,13 @@ The sandbox allows downloads but keeps network connections and forms disabled.
 Bridge requests are `{channel:'empyrean-v1',id,action,...}`; responses contain the
 same channel/ID and `result` or `error`. Actions: `context` returns enabled app
 names/IDs and Nexus locale; `request` takes module API path, method and optional
-JSON body; `navigate` takes module ID or `nexus`; `external` opens only HTTP(S) or
-mailto URLs with noopener/noreferrer. Modules own their navigation and switcher.
+JSON body; `navigate` takes module ID or `nexus`; `external` asks to open an
+absolute HTTP(S) or mailto URL (≤ 2048 characters, no embedded credentials). Nexus
+never opens it on the module's behalf: it shows the exact parsed destination and
+full address in its own dialog, and only the owner's click there opens it with
+noopener/noreferrer. The result is `{opened:true}`, or an error if the link was
+refused, cancelled, or another Nexus dialog was pending. Modules own their
+navigation and switcher. See [security model](security-model.md#external-navigation).
 
 Locally built images can use immutable Docker image IDs `sha256:<64 hex>` (local
 lookup only); remote images still require repository digests. Tags are not a

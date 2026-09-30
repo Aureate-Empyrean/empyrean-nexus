@@ -46,3 +46,13 @@ Common responses: 401 authentication required, 403 origin/CSRF/capability reject
 See [reference contract](cross-module-references.md) for exact identity, sharing, resolution and lifecycle behavior. The export now includes a `references` array and excludes resolver credentials. `POST /modules/validate` also reports `retained_references`; reinstalling such an identity needs explicit `reuse_reference_identity: true` alongside the manifest/grants.
 
 The Activity UI uses `/api/v1/activity/entries`. The original `/api/v1/activity` remains a deprecated alias: its exact path collides with an EasyPrivacy tracking filter and can be blocked by browser content blockers before reaching Nexus. Both endpoints read the same persisted audit records and require an owner session.
+
+## Module lifecycle and recovery (0.1.3)
+
+- `POST /api/v1/modules/{id}/update/review` (manifest body) → capability/version diff and backup policy. `POST /api/v1/modules/{id}/update` `{manifest, grants, backup_before?, allow_downgrade?}` applies it in place; `GET /api/v1/modules/{id}/updates` lists attempts.
+- `POST /api/v1/modules/{id}/backups`, `GET /api/v1/modules/{id}/backups`, `GET /api/v1/modules/{id}/backups/{backup}/download`.
+- `POST /api/v1/modules/{id}/backups/{backup}/restore` `{confirm_replace:true}`; `GET /api/v1/modules/{id}/restores`; `POST /api/v1/modules/{id}/restores/{job}/finalize`.
+- `POST /api/v1/modules/{id}/references/reconcile` rebuilds the module's outgoing edges from its enumeration.
+- `GET /api/v1/system` also reports `development.reference_module`; `/api/v1/example-manifest` returns 404 unless development mode is enabled.
+
+Semantics and failure states: [lifecycle and recovery](lifecycle-and-recovery.md).

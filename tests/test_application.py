@@ -6,7 +6,9 @@ from nexus.protocol import validate_manifest
 
 
 def application(manifest):
+    # The 0.1.2 application extension predates Entity References v2 (Nexus 0.1.3).
     manifest["nexus"] = ">=0.1.2,<0.2.0"
+    manifest["references"] = {"version": 1, "read": [], "resolve": []}
     manifest["capabilities"] += ["storage.data", "blobs.read", "blobs.write", "ui.application"]
     return manifest
 

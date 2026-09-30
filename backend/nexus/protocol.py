@@ -24,6 +24,7 @@ CAPABILITIES = {
     "references.read",
     "references.resolve",
 }
+EXAMPLE_IMAGES = {"empyrean-example:0.1.0", "empyrean-example:0.1.1", "empyrean-example:0.1.2"}
 SCHEMA = json.loads((ROOT / "protocol/module-v1.schema.json").read_text())
 VALIDATOR = Draft202012Validator(SCHEMA, format_checker=FormatChecker())
 
@@ -43,7 +44,7 @@ def validate_manifest(manifest: dict, allow_example: bool = False) -> dict:
     if not re.fullmatch(
         r"(?:sha256:[a-f0-9]{64}|[a-z0-9][a-z0-9./:_-]*@sha256:[a-f0-9]{64})", image
     ):
-        if not (allow_example and image in {"empyrean-example:0.1.0", "empyrean-example:0.1.1"}):
+        if not (allow_example and image in EXAMPLE_IMAGES):
             raise ValueError("Images must be pinned by sha256 digest")
     caps = set(manifest["capabilities"])
     if caps & {"storage.data", "blobs.read", "blobs.write", "ui.application"} and Version(
@@ -75,4 +76,32 @@ def validate_manifest(manifest: dict, allow_example: bool = False) -> dict:
         for scope in ("read", "resolve"):
             if refs[scope] and "references." + scope not in caps:
                 raise ValueError("Reference scopes require their matching capability")
+        if refs["version"] == 2 and not excludes(manifest, "0.1.2"):
+            raise ValueError("Entity References v2 requires a Nexus range excluding 0.1.2")
+        if refs.get("enumerate"):
+            if refs["version"] != 2:
+                raise ValueError("Outgoing-reference enumeration requires references.version=2")
+            if "references.create" not in caps:
+                raise ValueError("Outgoing-reference enumeration requires references.create")
+    if "backup" in manifest:
+        if "storage.data" not in caps:
+            raise ValueError("The backup contract applies to modules with storage.data")
+        if not excludes(manifest, "0.1.2"):
+            raise ValueError("The backup contract requires a Nexus range excluding 0.1.2")
     return manifest
+
+
+def excludes(manifest: dict, version: str) -> bool:
+    """True when the manifest's range rejects this Nexus release and every earlier one."""
+    spec = SpecifierSet(manifest["nexus"])
+    return not any(
+        Version(old) in spec
+        for old in ("0.1.0", "0.1.1", "0.1.2")
+        if Version(old) <= Version(version)
+    )
+
+
+def uses_uuid_identity(manifest: dict) -> bool:
+    """Entity References v2: every resource ID this module exposes is a canonical UUID."""
+    refs = manifest.get("references") or {}
+    return refs.get("version") == 2

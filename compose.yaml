@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: deploy/Dockerfile
-    image: empyrean-nexus:0.1.2
+    image: empyrean-nexus:0.1.3
     restart: unless-stopped
     init: true
     ports:
@@ -13,7 +13,7 @@ services:
       NEXUS_DATA: /data
       NEXUS_ALLOWED_ORIGINS: ${NEXUS_ALLOWED_ORIGINS:-}
       NEXUS_PUBLIC_ORIGIN: ${NEXUS_PUBLIC_ORIGIN:-http://localhost:12333}
-      NEXUS_ALLOW_EXAMPLE: ${NEXUS_ALLOW_EXAMPLE:-1}
+      NEXUS_ALLOW_EXAMPLE: ${NEXUS_ALLOW_EXAMPLE:-0}
       NEXUS_BROKER_SOCKET: /run/nexus/broker.sock
     labels:
       org.aureate-empyrean.nexus.gateway: ${NEXUS_INSTALLATION:-nexus}
@@ -39,7 +39,7 @@ services:
       driver: json-file
       options: {max-size: 5m, max-file: "2"}
   broker:
-    image: empyrean-nexus:0.1.2
+    image: empyrean-nexus:0.1.3
     build:
       context: .
       dockerfile: deploy/Dockerfile
@@ -50,7 +50,7 @@ services:
     network_mode: none
     environment:
       NEXUS_INSTALLATION: ${NEXUS_INSTALLATION:-nexus}
-      NEXUS_ALLOW_EXAMPLE: ${NEXUS_ALLOW_EXAMPLE:-1}
+      NEXUS_ALLOW_EXAMPLE: ${NEXUS_ALLOW_EXAMPLE:-0}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - broker-control:/run/nexus
@@ -76,7 +76,7 @@ services:
     build:
       context: .
       dockerfile: examples/example-module/Dockerfile
-    image: empyrean-example:0.1.1
+    image: empyrean-example:0.1.2
     # Build target only. The broker creates actual module containers.
     entrypoint: [python, -c, "print('Reference image built; install its manifest in Nexus.')"]
     network_mode: none

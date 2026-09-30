@@ -45,6 +45,19 @@ MIGRATIONS = [
     CREATE TABLE blob_grants(blob TEXT NOT NULL REFERENCES blobs(id), module TEXT NOT NULL,
                              PRIMARY KEY(blob,module));
     """,
+    """
+    CREATE TABLE module_backups(id TEXT PRIMARY KEY, module TEXT NOT NULL,
+                                metadata TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE INDEX module_backups_module ON module_backups(module, created_at);
+    CREATE TABLE module_restores(id TEXT PRIMARY KEY, module TEXT NOT NULL, backup TEXT NOT NULL,
+                                 state TEXT NOT NULL, stage TEXT NOT NULL, detail TEXT NOT NULL,
+                                 started_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE module_updates(id TEXT PRIMARY KEY, module TEXT NOT NULL,
+                                from_version TEXT NOT NULL, to_version TEXT NOT NULL,
+                                from_manifest TEXT NOT NULL, to_manifest TEXT NOT NULL,
+                                state TEXT NOT NULL, stage TEXT NOT NULL, detail TEXT NOT NULL,
+                                started_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    """,
 ]
 
 

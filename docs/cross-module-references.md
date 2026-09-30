@@ -19,7 +19,7 @@ nexus:v1:community-library:item:0192a5d3-7c1e-7b2a-9f4e-3d8c1b6a2e10
 
 The version is part of the grammar. The `nexus` module ID/event namespace is reserved for the platform. Module IDs and resource types are lowercase kebab-case, at most 48 characters each. The opaque resource ID is case-sensitive ASCII, 1–128 characters: a letter/digit followed by letters, digits, `.`, `_`, `~` or `-`. There is no percent decoding, URI authority, query, fragment, slash or relative traversal. Authors whose native IDs contain other characters must assign a stable safe identifier; do not derive identity from mutable display names or routes.
 
-The ecosystem architecture requires the stable resource ID to be the owner's **UUID** for the resource (UUIDv7 preferred), never a database-local integer. The v1 grammar treats the ID as opaque and accepts UUIDs; it does not reject other safe strings, so existing registrations keep working. New modules must use UUIDs.
+The ecosystem architecture requires the stable resource ID to be the owner's **UUID** for the resource (UUIDv7 preferred), never a database-local integer. The grammar treats the ID as opaque. Owners declaring `references.version: 2` (Nexus 0.1.3) get it enforced: every ID in their namespace must be a canonical lowercase UUID in writes, resolution and enumeration. Version 1 keeps accepting other safe strings so existing registrations keep working; new modules should declare version 2.
 
 Identity is unambiguous **within one installation**. There is no federation or implicit interpretation in another installation. The type and ID are meaningful only to the owning module. Updates must preserve IDs; owners must not recycle deleted IDs for unrelated objects. Migration/merge aliases and cross-installation import mapping are not implemented.
 
@@ -151,10 +151,10 @@ Checked against architecture commit `2fbfe12` (`concepts/resource-identity-and-l
 
 `not_found` (owner 404) and `not_resolvable` (type declared non-resolvable) have no exact architecture equivalent. Trashed and redirected states would need an additive, versioned resolver extension; the strict v1 representation maps unknown owner replies to `temporarily_unavailable` rather than guessing.
 
-Known gaps against the module contract's required areas, not implemented in v1 because no wire protocol is designed yet:
+Module-contract areas, status in Nexus 0.1.3:
 
-- **Outgoing-reference enumeration.** The architecture treats the reference index as derived Nexus state rebuildable from modules. v1 has no enumeration or rebuild endpoint, so creators must keep their own authoritative linkage (as they would need to for selective restore anyway).
-- **Blob usage reporting.** Modules cannot report which blobs they still use; blobs are never deleted and there is no garbage collection.
-- **Export/restore participation.** Backup is an offline copy of the Nexus volume and module data volumes; there is no module export/restore contract or restore-time purge suspension.
+- **Outgoing-reference enumeration**: implemented for Entity References v2 modules (`enumerate: true`); the index is reconciled from the owner's enumeration and a failed enumeration never removes edges. See [lifecycle and recovery](lifecycle-and-recovery.md#outgoing-reference-enumeration-entity-references-v2). v1 modules without enumeration must keep their own authoritative linkage.
+- **Export/restore participation**: implemented as the backup v1 contract, with validate → restore → reconcile → finalize and purge suspension. See [lifecycle and recovery](lifecycle-and-recovery.md#backuprestore-contract-backup-v1).
+- **Blob usage reporting**: not implemented. Modules cannot report which blobs they still use; blobs are never deleted and there is no garbage collection. Backups carry the blobs granted to a module, and restore only adds blobs, so later mark-and-sweep reconciliation remains possible.
 
 Uninstall and disable already match the lifecycle rule: neither deletes module data volumes, shared blobs or references.

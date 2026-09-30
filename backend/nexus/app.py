@@ -10,6 +10,7 @@ from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 import httpx
@@ -25,8 +26,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from nexus import VERSION
 from nexus.db import Database
 from nexus.protocol import ROOT, validate_manifest
+from nexus.recovery import add_recovery_routes
 from nexus.references import add_reference_routes, edge_json, event_visible
 from nexus.runtime import BrokerRuntime
+from nexus.updates import add_update_routes
 
 PASSWORDS = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 COOKIE = "nexus_session"
@@ -169,7 +172,13 @@ def create_app(data_dir=None, runtime=None, transport=None):
         # Interrupted operations remain explicit and retryable after process termination.
         with db.connect() as conn:
             conn.execute(
-                "UPDATE modules SET state='error', token=NULL,resolver_key=NULL WHERE state IN ('enabling','disabling','removing')"
+                "UPDATE modules SET state='error', token=NULL,resolver_key=NULL WHERE state IN ('enabling','disabling','removing','restoring','updating')"
+            )
+            conn.execute(
+                "UPDATE module_restores SET state='failed',detail='Interrupted by a Nexus restart; the module data state is unknown.' WHERE state='running'"
+            )
+            conn.execute(
+                "UPDATE module_updates SET state='failed',detail='Interrupted by a Nexus restart; the module was left in error.' WHERE state='applying'"
             )
             enabled = conn.execute(
                 "SELECT id,manifest FROM modules WHERE state='enabled'"
@@ -422,6 +431,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
             "data_free_bytes": disk.f_bavail * disk.f_frsize,
             "update": {"status": "not_checked", "discovery_supported": False},
             "protocol": 1,
+            "development": {"reference_module": allow_example},
         }
 
     @app.patch("/api/v1/settings")
@@ -449,6 +459,9 @@ def create_app(data_dir=None, runtime=None, transport=None):
 
     @app.get("/api/v1/example-manifest")
     def example_manifest(owner=Depends(require_owner)):
+        # Development-only reference; production installations do not offer it.
+        if not allow_example:
+            raise HTTPException(404, "The reference module is a development feature")
         return FileResponse(ROOT / "examples/example-module/manifest.json")
 
     def validate(manifest):
@@ -480,6 +493,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
         return bool(
             conn.execute("SELECT 1 FROM retained_module_data WHERE id=?", (module_id,)).fetchone()
             or conn.execute("SELECT 1 FROM blob_grants WHERE module=?", (module_id,)).fetchone()
+            or conn.execute("SELECT 1 FROM module_backups WHERE module=?", (module_id,)).fetchone()
         )
 
     @app.post("/api/v1/modules/validate")
@@ -860,6 +874,21 @@ def create_app(data_dir=None, runtime=None, transport=None):
         )
 
     add_reference_routes(app, db, require_module, require_owner, runtime, transport)
+    ctx = SimpleNamespace(
+        db=db,
+        runtime=runtime,
+        transport=transport,
+        data=data,
+        lock=lifecycle_lock,
+        audit=audit,
+        notice=notice,
+        upstream=upstream,
+        require_owner=require_owner,
+        validate=validate,
+        now=now,
+    )
+    create_backup = add_recovery_routes(app, ctx)
+    add_update_routes(app, ctx, create_backup)
 
     app.mount("/assets", StaticFiles(directory=ROOT / "frontend"), name="assets")
 

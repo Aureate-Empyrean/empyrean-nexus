@@ -30,7 +30,7 @@ A route is a simple absolute path, not a URL, with no query, fragment, escape se
 
 There are no module dependencies, arbitrary service names, custom commands, extra environment variables, volumes, host devices, GPU grants, external networking, privileged flags or custom resource limits in v1. Do not smuggle these in through unknown manifest fields; validation rejects them. Images declaring Docker volumes are also rejected.
 
-The local reference tag exceptions are `empyrean-example:0.1.0` and `empyrean-example:0.1.1`, if the operator enables `NEXUS_ALLOW_EXAMPLE=1` on both services. It must already exist locally. All other images require digests. An image digest ensures identity of bytes, not trustworthiness or vulnerability freedom.
+The local reference tag exceptions are `empyrean-example:0.1.0`, `0.1.1` and `0.1.2`, if the operator enables `NEXUS_ALLOW_EXAMPLE=1` on both services. It must already exist locally. All other images require digests. An image digest ensures identity of bytes, not trustworthiness or vulnerability freedom.
 
 ## Container contract
 
@@ -50,7 +50,7 @@ Tokens rotate on each enable and are revoked before disable/removal. Retry a Nex
 
 `POST /api/v1/modules/validate` performs schema and compatibility review. `POST /api/v1/modules` takes `{ "manifest": {...}, "grants": [...] }`; grants must match the reviewed manifest exactly. Registration starts disabled and reserves its ID and port. Enabling is the point that downloads/runs the image. The broker validates again.
 
-Enable, disable, inspect, health and uninstall routes are documented in [API](api.md). Uninstall is idempotent at the runtime cleanup layer, but inspecting/deleting an absent registration returns 404. Failed cleanup keeps the registration for a retry. `error` is a real state, not success. V1 does not update manifests in place: disable/uninstall and explicitly review a new manifest. There is no persistent module data in this revision.
+Enable, disable, inspect, health and uninstall routes are documented in [API](api.md). Uninstall is idempotent at the runtime cleanup layer, but inspecting/deleting an absent registration returns 404. Failed cleanup keeps the registration for a retry. `error` is a real state, not success. Since Nexus 0.1.3 a module is updated in place (same identity, data and references) after a capability diff review and verified health; see [lifecycle and recovery](lifecycle-and-recovery.md). Uninstall never deletes retained module data.
 
 ## Capability model
 
@@ -104,3 +104,12 @@ The module UI cannot read Nexus storage or invoke owner APIs. The Nexus-side API
 Optional `resources` declares unique opaque resource types with a `resolvable` flag. Optional `references` declares `version: 1` and exact `read`/`resolve` module/type scopes. The capabilities are `references.create` (source-owned creation/update/deletion), `references.read` (permission-aware index queries) and `references.resolve` (owner-authorized minimal metadata). Using these fields requires compatibility excluding Nexus 0.1.0. Legacy manifests without them remain supported.
 
 Relationships are private to their creator unless explicit readers are granted. Target ownership never implies backlink visibility. The grammar, APIs, resolver authentication, event filtering, ID stability and lifecycle contract are specified in [cross-module references](cross-module-references.md). No official product receives special treatment.
+
+## Nexus 0.1.3 additions
+
+All are opt-in manifest fields validated by the same strict schema; older Nexus releases reject them rather than ignoring them. Using any of them requires a Nexus range excluding 0.1.2 (for example `>=0.1.3,<0.2.0`).
+
+- `references.version: 2` (Entity References v2): the module's resource IDs are canonical lowercase UUIDs, enforced by Nexus. Optional `references.enumerate: true` (requires `references.create`) promises `GET /empyrean/v1/references/outgoing`.
+- `backup: {"version": 1}` (requires `storage.data`): the module implements export, validate, restore and finalize.
+
+Contracts, failure semantics and the owner APIs: [lifecycle and recovery](lifecycle-and-recovery.md). Module Protocol v1 itself is unchanged; existing manifests remain valid.

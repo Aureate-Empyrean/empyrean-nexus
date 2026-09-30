@@ -6,7 +6,7 @@ Empyrean Nexus is the small, self-hosted control plane for an open ecosystem of 
 
 ## Status
 
-**0.1.2 foundation / pre-release.** The reference vertical slice implements first-run setup, owner login, a dashboard, manifest review, registration, container enable/disable/removal, health checks, sandboxed routing, event publication/polling, notifications, private-by-default resource references, owner-authorized resolution, backlinks, real Activity, metadata export and opt-in persistent application infrastructure (full-window sandboxed UI, retained module data volumes, shared blobs). This is an initial implementation, not a security-audited production platform.
+**0.1.3 foundation / pre-release.** The reference vertical slice implements first-run setup, owner login, a dashboard, manifest review, registration, container enable/disable/removal, health checks, sandboxed routing, event publication/polling, notifications, private-by-default resource references, owner-authorized resolution, backlinks, real Activity, metadata export and opt-in persistent application infrastructure (full-window sandboxed UI, retained module data volumes, shared blobs), in-place module updates with capability review and health verification, a module backup/restore contract, and reference reconciliation from module-owned state. This is an initial implementation, not a security-audited production platform.
 
 Nexus is **not** a people database, media library, location tracker, messaging product or calendar. Meridian, Atlas, Mnemosyne, Argus, Hermes and Chronos are future independent applications; none is implemented here. Nexus has no knowledge of their domain entities.
 
@@ -25,18 +25,20 @@ The default bind is loopback. For remote access, configure an HTTPS reverse prox
 
 ## Prove the module contract
 
+The reference module is a development feature. Set `NEXUS_ALLOW_EXAMPLE=1` in `.env` (it defaults to `0`), apply it with `docker compose up -d`, then build the image:
+
 ```sh
 docker compose --profile example build example
 ```
 
-1. In **Modules → Install module**, choose **Load reference manifest**.
+1. In **Modules → Install module**, choose **Load reference manifest** (shown only in development mode).
 2. Review the image, publisher, reserved port and capabilities. Grant them and install disabled.
 3. Enable the module, check health, and open it through Nexus.
 4. In its API explorer, GET `/info`, POST `/publish`, then GET `/consume`.
 5. POST `/reference`, GET `/references` or `/backlinks`, and POST `/resolve` to exercise the sample resource.
 6. Observe its notification, disable it, and uninstall it.
 
-The reference imports no Nexus code. Any conforming module can be registered without modifying Nexus. V1 accepts manually supplied JSON manifests, including files downloaded from a repository or release. It never clones or runs repository installation scripts. Apart from the explicit local reference image, images must be pinned by SHA-256 digest. Set `NEXUS_ALLOW_EXAMPLE=0` to disable that development exception.
+The reference imports no Nexus code. Any conforming module can be registered without modifying Nexus. V1 accepts manually supplied JSON manifests, including files downloaded from a repository or release. It never clones or runs repository installation scripts. Apart from the explicit local reference image in development mode, images must be pinned by SHA-256 digest.
 
 ## Architecture
 
@@ -82,12 +84,13 @@ Native development can exercise setup, metadata and the UI; real container lifec
 - Manual manifest source only; source providers can be added without changing runtime contracts.
 - All manual installations are shown as Community/unreviewed; publisher identity is not authenticated.
 - Export is portable JSON, not a restore system. See offline backup instructions.
-- No multi-user sharing, permission editor, module dependencies, registry, in-place module updates, signed packages, TLS termination or password recovery UI yet.
+- No multi-user sharing, permission editor, module dependencies, registry or update discovery, signed packages, TLS termination, backup UI, backup import or password recovery UI yet. Updates, backups and restores are API/CLI operations; see [lifecycle and recovery](docs/lifecycle-and-recovery.md).
 
 ## Documentation
 
 - [Cross-module references](docs/cross-module-references.md) and [UI navigation/motion](docs/ui.md)
 - [Architecture](docs/architecture.md) and [decisions](docs/adr/0001-foundation.md)
+- [Module lifecycle and recovery](docs/lifecycle-and-recovery.md): updates, backup/restore, reference reconciliation
 - [Module protocol](docs/module-protocol.md), [JSON Schema](protocol/module-v1.schema.json), [API](docs/api.md)
 - [Security model](docs/security-model.md), [security reporting](SECURITY.md)
 - [Ports](docs/ports.md), [deployment](docs/deployment.md), [development](docs/development.md)

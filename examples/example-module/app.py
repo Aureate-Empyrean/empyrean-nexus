@@ -3,16 +3,25 @@
 import json
 import os
 import secrets
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BASE = os.environ["NEXUS_URL"]
 TOKEN = os.environ["NEXUS_TOKEN"]
 MODULE_ID = os.getenv("NEXUS_MODULE_ID", "empyrean-example")
 RESOLVER_KEY = os.getenv("NEXUS_RESOLVER_KEY", "")
-RESOURCE = f"nexus:v1:{MODULE_ID}:item:sample"
+# Persistent first-class resources are identified by UUIDs. This disposable module has one
+# stable sample item; its UUID is derived from the module ID so each identity is distinct.
+ITEM_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, "urn:aureate-empyrean:example:" + MODULE_ID))
+RESOURCE = f"nexus:v1:{MODULE_ID}:item:{ITEM_ID}"
+# The module is authoritative for the references it creates. Nexus rebuilds its derived index
+# from this list. The example keeps it in memory only: after a restart it owns no references.
+EDGES = {}
+EDGES_LOCK = threading.Lock()
 
 
 def nexus(path, body=None):
@@ -37,10 +46,30 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
+    def resolver_authenticated(self):
+        return bool(RESOLVER_KEY) and secrets.compare_digest(
+            self.headers.get("X-Nexus-Resolver-Key", ""), RESOLVER_KEY
+        )
+
     def do_GET(self):
         try:
+            if self.path.startswith("/empyrean/v1/references/outgoing"):
+                if not self.resolver_authenticated():
+                    return self.reply({"detail": "Resolver authentication required"}, 403)
+                query = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                start = int(query.get("cursor", ["0"])[0])
+                limit = min(int(query.get("limit", ["200"])[0]), 200)
+                with EDGES_LOCK:
+                    edges = [EDGES[key] for key in sorted(EDGES)]
+                following = start + limit if start + limit < len(edges) else None
+                return self.reply(
+                    {
+                        "references": edges[start : start + limit],
+                        "next_cursor": str(following) if following is not None else None,
+                    }
+                )
             if self.path == "/health":
-                self.reply({"status": "ok", "version": "0.1.1"})
+                self.reply({"status": "ok", "version": "0.1.2"})
             elif self.path == "/":
                 self.reply(
                     """<!doctype html><html lang="en"><meta charset="utf-8">
@@ -49,7 +78,7 @@ class Handler(BaseHTTPRequestHandler):
                 <style>body{background:#101216;color:#f2f0ea;font:14px/1.7 system-ui;padding:24px}
                 h1{font-size:22px}p{color:#a7a9af}code{color:#d6ad60}</style>
                 <h1>Protocol reference module</h1>
-                <p>Disposable test resource: <code>item:sample</code></p>
+                <p>Disposable test resource: <code>item</code> with a stable UUID</p>
                 <p>API explorer: GET <code>/info</code>, POST <code>/publish</code>,
                 GET <code>/consume</code>.</p><p>References: POST <code>/reference</code>,
                 GET <code>/references</code> or <code>/backlinks</code>, POST <code>/resolve</code>.</p>
@@ -60,7 +89,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(
                     {
                         "module": MODULE_ID,
-                        "version": "0.1.1",
+                        "version": "0.1.2",
                         "nexus": nexus("/context"),
                         "resource": RESOURCE,
                     }
@@ -95,9 +124,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(body, dict):
                 return self.reply({"detail": "Expected JSON object"}, 400)
             if self.path == "/empyrean/v1/resources/resolve":
-                if not RESOLVER_KEY or not secrets.compare_digest(
-                    self.headers.get("X-Nexus-Resolver-Key", ""), RESOLVER_KEY
-                ):
+                if not self.resolver_authenticated():
                     return self.reply({"detail": "Resolver authentication required"}, 403)
                 if body.get("resource") != RESOURCE:
                     return self.reply({"detail": "Resource not found"}, 404)
@@ -113,17 +140,17 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 return self.reply(event, 201)
             if self.path == "/api/reference":
-                return self.reply(
-                    nexus(
-                        "/references",
-                        {
-                            "source": RESOURCE,
-                            "target": body.get("target", RESOURCE),
-                            "relation": MODULE_ID + ".related",
-                            "readers": body.get("readers", []),
-                        },
-                    )
-                )
+                edge = {
+                    "source": RESOURCE,
+                    "target": body.get("target", RESOURCE),
+                    "relation": MODULE_ID + ".related",
+                    "metadata": {},
+                    "readers": body.get("readers", []),
+                }
+                result = nexus("/references", edge)
+                with EDGES_LOCK:
+                    EDGES[(edge["source"], edge["target"], edge["relation"])] = edge
+                return self.reply(result)
             if self.path == "/api/resolve":
                 return self.reply(
                     nexus("/resources/resolve", {"resource": body.get("resource", RESOURCE)})

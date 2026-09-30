@@ -23,7 +23,7 @@ After the initial build, `docker compose up -d` is sufficient. There are no mand
 docker compose --profile example build example
 ```
 
-This builds only the reference image. Do not run it with `docker compose --profile example up`; Nexus's broker manages the actual container. Use the dashboard's manifest review/install/enable flow. The default `.env` permits only this exact local tag as a development exception. For other modules use immutable digest image references.
+This builds only the reference image. Do not run it with `docker compose --profile example up`; Nexus's broker manages the actual container. Use the dashboard's manifest review/install/enable flow. The reference module is development-only: set `NEXUS_ALLOW_EXAMPLE=1` to accept its exact local tag and show its manifest in the install dialog (default `0`). For other modules use immutable digest image references.
 
 The expected round trip is described in [README](../README.md). Disable stops and removes the container/network; uninstall also removes registration and releases the port. The reference has no persistent data. Do not use protocol v1 for modules requiring durable storage.
 
@@ -51,7 +51,7 @@ After failed/interrupted lifecycle work, a module remains registered in error. R
 
 ## Offline backup
 
-There is no backup scheduler or restore UI. Settings' JSON export is useful for portability but deliberately excludes authentication secrets and is not directly restorable.
+There is no backup scheduler or restore UI. Modules that declare the backup contract can be backed up and restored individually through the API or `python -m nexus.manage --backup <id>` / `--restore <id> <backup-id> --confirm-replace` inside the gateway container; see [lifecycle and recovery](lifecycle-and-recovery.md). Those backups live in the Nexus data volume under `backups/modules/` and are not encrypted by Nexus. Settings' JSON export is useful for portability but deliberately excludes authentication secrets and is not directly restorable.
 
 For a consistent full Nexus backup:
 
@@ -64,7 +64,7 @@ To restore, stop the same installation, restore the full data volume into an emp
 
 ## Updates and operational checks
 
-No automatic update discovery or migration rollback exists. Back up first, review release/source changes and migrations, rebuild, then `docker compose up -d --build --wait`. SQLite migrations run at startup; attempting to run older code against a newer schema fails rather than guessing.
+Module updates are applied in place with `python -m nexus.manage manifest.json --update` (review), then `--update --approve [--backup-first]`; see [lifecycle and recovery](lifecycle-and-recovery.md). For Nexus itself, no automatic update discovery or migration rollback exists. Back up first, review release/source changes and migrations, rebuild, then `docker compose up -d --build --wait`. SQLite migrations run at startup; attempting to run older code against a newer schema fails rather than guessing.
 
 ```sh
 docker compose ps

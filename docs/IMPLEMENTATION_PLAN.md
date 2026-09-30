@@ -99,3 +99,11 @@ Changed:
 - Documentation: 0.1.2 status, UUID resource identity requirement, mapping of v1 availability values to the architecture's resolution states, and the module-contract gaps (outgoing-reference enumeration, blob usage reporting, export/restore participation) that remain unimplemented.
 
 Verified: 90 backend tests, 9 frontend tests, Ruff lint/format and JavaScript syntax checks. The Docker smoke test was not run: its image build would retag the images used by the live installation on this host.
+
+## Lifecycle and recovery hardening — Nexus 0.1.3, 2026-09-30
+
+- Bridge `external` navigation now requires owner approval of the exact parsed address in a Nexus dialog; module clicks can no longer open arbitrary URLs.
+- Entity References v2: UUID resource IDs enforced for v2 owners; outgoing-reference enumeration and owner-triggered reconciliation that never removes edges on failure.
+- Backup v1 contract (export/validate/restore/finalize) with purge suspension, blob carry-over, identity checks, reconciliation after restore and explicit `failed`/`needs_attention` states.
+- In-place module updates with a capability diff, exact grants, backup hook, health verification and honest failure without claimed rollback.
+- Reference module is development-only by default (`NEXUS_ALLOW_EXAMPLE=0`), uses a UUID resource and enumerates its references. Compose image tags moved to `empyrean-nexus:0.1.3` / `empyrean-example:0.1.2`, so building does not retag images of an existing 0.1.2 deployment.
