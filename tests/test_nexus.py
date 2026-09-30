@@ -195,7 +195,7 @@ def test_review_grants_exports_and_body_limits(owner, manifest):
     assert "token" not in exported["modules"][0]
     assert "password" not in json.dumps(exported)
     assert client.post("/api/v1/modules/validate", content=b"x" * 70000).status_code == 413
-    assert client.get("/api/v1/openapi.json").json()["info"]["version"] == "0.1.1"
+    assert client.get("/api/v1/openapi.json").json()["info"]["version"] == "0.1.2"
 
 
 def test_schema_migrations_persist_and_reject_downgrade(tmp_path):
@@ -207,7 +207,7 @@ def test_schema_migrations_persist_and_reject_downgrade(tmp_path):
         conn.execute("INSERT INTO settings VALUES('a','b')")
     db = Database(path)
     with db.connect() as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
         assert conn.execute("SELECT value FROM settings").fetchone()[0] == "b"
         conn.execute("PRAGMA user_version=999")
     with pytest.raises(RuntimeError):

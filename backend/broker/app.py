@@ -76,8 +76,17 @@ def operate(action, body):
             resolved = client.images.get(image)  # Local reference exception; never pull a tag.
         if resolved.attrs.get("Config", {}).get("Volumes"):
             raise ValueError("Image-declared volumes are not supported in protocol v1")
+        mounts = {}
+        if "storage.data" in manifest["capabilities"]:
+            volume_name = f"{INSTALLATION}-data-{body.id}"
+            try:
+                owned(client.volumes.get(volume_name))
+            except NotFound:
+                client.volumes.create(name=volume_name, labels={LABEL: INSTALLATION})
+            mounts["volumes"] = {volume_name: {"bind": "/data", "mode": "rw"}}
         container = client.containers.run(
             resolved.id,
+            **mounts,
             detach=True,
             name=name,
             hostname=f"module-{body.id}",

@@ -289,7 +289,7 @@ def test_existing_v1_database_migration(tmp_path):
         conn.execute("INSERT INTO settings VALUES('installation_name','Existing')")
     db = Database(path)
     with db.connect() as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 3
         assert conn.execute("SELECT value FROM settings").fetchone()[0] == "Existing"
         assert conn.execute("SELECT COUNT(*) FROM resource_references").fetchone()[0] == 0
 

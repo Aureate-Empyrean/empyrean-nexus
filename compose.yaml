@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: deploy/Dockerfile
-    image: empyrean-nexus:0.1.1
+    image: empyrean-nexus:0.1.2
     restart: unless-stopped
     init: true
     ports:
@@ -39,7 +39,7 @@ services:
       driver: json-file
       options: {max-size: 5m, max-file: "2"}
   broker:
-    image: empyrean-nexus:0.1.1
+    image: empyrean-nexus:0.1.2
     build:
       context: .
       dockerfile: deploy/Dockerfile

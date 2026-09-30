@@ -194,6 +194,7 @@ async function renderView({ transition = false, focus = false, changed = null, a
   const content = document.querySelector('#content');
   if (!content) return;
   const module = view.name === 'module' ? modules.find(m => m.id === view.id) : null;
+  document.body.classList.toggle('application-mode', !!(module?.state === 'enabled' && module.manifest.capabilities.includes('ui.application')));
   document.querySelectorAll('[data-nav]').forEach(link => {
     const active = link.dataset.nav === view.name;
     link.classList.toggle('active', active);
@@ -276,11 +277,11 @@ function installDialog() {
       const manifest = JSON.parse(reviewedText);
       const review = await api('/modules/validate', { method: 'POST', body: JSON.stringify(manifest) });
       if (context !== dialogEpoch || text.value !== reviewedText) return;
-      result.innerHTML = `<div class="review"><h3>${esc(manifest.name)} <span class="badge">Community · unreviewed</span></h3><p>${esc(manifest.description)}</p><dl class="metadata"><dt>Publisher (self-declared)</dt><dd>${esc(manifest.publisher.name)}</dd><dt>Image</dt><dd><code>${esc(manifest.container.image)}</code></dd><dt>Internal port</dt><dd>${manifest.container.port}</dd></dl><div class="caps">${review.capabilities.map(c => `<code>${esc(c)}</code>`).join('') || 'No capabilities requested'}</div>${manifest.references ? `<h3 class="spaced">Cross-module scopes</h3><pre>${esc(JSON.stringify(manifest.references, null, 2))}</pre><p>Read scopes do not reveal private relationships. Resolution can expose owner-approved metadata.</p>` : ''}<p>${esc(review.warning)}</p>${review.retained_references ? `<p class="warning-text">${review.retained_references} retained references use this module identity.</p><label><input type="checkbox" id="reuse-identity">Restore this identity with the same resource IDs. A different dataset could misdirect existing references.</label>` : ''}<label><input type="checkbox" id="consent">Grant the capabilities and scopes shown above.</label><div id="confirm-install"></div></div>`;
+      result.innerHTML = `<div class="review"><h3>${esc(manifest.name)} <span class="badge">Community · unreviewed</span></h3><p>${esc(manifest.description)}</p><dl class="metadata"><dt>Publisher (self-declared)</dt><dd>${esc(manifest.publisher.name)}</dd><dt>Image</dt><dd><code>${esc(manifest.container.image)}</code></dd><dt>Internal port</dt><dd>${manifest.container.port}</dd></dl><div class="caps">${review.capabilities.map(c => `<code>${esc(c)}</code>`).join('') || 'No capabilities requested'}</div>${manifest.references ? `<h3 class="spaced">Cross-module scopes</h3><pre>${esc(JSON.stringify(manifest.references, null, 2))}</pre><p>Read scopes do not reveal private relationships. Resolution can expose owner-approved metadata.</p>` : ''}<p>${esc(review.warning)}</p>${(review.retained_references || review.retained_data) ? `<p class="warning-text">${review.retained_references} retained references${review.retained_data ? " and persistent data" : ""} use this module identity.</p><label><input type="checkbox" id="reuse-identity">Restore this identity with the same resource IDs. A different dataset could misdirect existing references.</label>` : ''}<label><input type="checkbox" id="consent">Grant the capabilities and scopes shown above.</label><div id="confirm-install"></div></div>`;
       result.querySelector('#confirm-install').append(action('Install disabled', async () => {
         if (!dialog.querySelector('#consent').checked) throw new Error('Review and grant the requested capabilities first.');
-        if (review.retained_references && !dialog.querySelector('#reuse-identity').checked) throw new Error('Confirm that you are restoring the same resource identity.');
-        await api('/modules', { method: 'POST', body: JSON.stringify({ manifest, grants: review.capabilities, reuse_reference_identity: !!review.retained_references }) });
+        if ((review.retained_references || review.retained_data) && !dialog.querySelector('#reuse-identity').checked) throw new Error('Confirm that you are restoring the same resource identity.');
+        await api('/modules', { method: 'POST', body: JSON.stringify({ manifest, grants: review.capabilities, reuse_reference_identity: !!(review.retained_references || review.retained_data) }) });
         if (context === dialogEpoch) closeDialog(); await refresh({ changed: manifest.id }); toast('Module installed disabled.');
       }, 'primary', 'Installing…'));
       dialog.querySelector('#review-error').textContent = ''; enter(result);
@@ -305,6 +306,10 @@ function renderModuleView(content, module) {
   content.innerHTML = heading(module.manifest.name, `<a data-route class="button-link" href="${routes.modules}">Manage modules</a>`);
   if (module.state !== 'enabled') { content.insertAdjacentHTML('beforeend', `<section class="panel"><span class="badge">${esc(module.state)}</span><p class="spaced">Enable this module in Modules to open it.</p></section>`); return; }
   const path = view.modulePath || '/';
+  if (module.manifest.capabilities.includes('ui.application')) {
+    content.innerHTML = `<iframe id="module-application" title="${esc(module.manifest.name)}" sandbox="allow-scripts allow-downloads" src="/modules/${module.id}${esc(path)}"></iframe>`;
+    return;
+  }
   content.insertAdjacentHTML('beforeend', `<section class="panel module-view"><div class="panel-heading"><span class="badge">v${esc(module.manifest.version)}</span><span class="small">Sandboxed module view</span></div><iframe title="${esc(module.manifest.name)}" sandbox="allow-scripts" src="/modules/${module.id}${esc(path)}"></iframe></section><details class="panel api-explorer"><summary>Module API explorer</summary><div class="details-body"><label for="module-api-path">Path relative to ${esc(module.manifest.routes.api)}</label><input id="module-api-path" value="/info" maxlength="100"><div class="dialog-actions" id="module-api-actions"></div><pre id="module-api-result" aria-live="polite"></pre></div></details>`);
   const call = async method => {
     const input = document.querySelector('#module-api-path'), output = document.querySelector('#module-api-result');
@@ -317,11 +322,11 @@ function renderModuleView(content, module) {
   document.querySelector('#module-api-actions').append(action('GET', () => call('GET'), '', 'Requesting…'), action('POST', () => call('POST'), '', 'Requesting…'));
 }
 function renderSettings(content) {
-  content.innerHTML = heading('Settings') + `<section class="panel"><h2>Installation</h2><form id="settings-form" class="setting-form"><label for="name">Installation name</label><input id="name" value="${esc(system.name)}" maxlength="80" required><div class="spaced"><button class="primary">Save</button></div></form></section><section class="panel"><h2>Metadata export</h2><p>Includes settings, manifests, references, retained events, notifications, and audit records. Credentials are excluded.</p><a class="button-link" href="/api/v1/export" download="nexus-export.json">Download JSON</a><p class="help">This is not a restorable backup. Exported metadata can contain private information.</p></section><details class="panel"><summary>Developer contracts</summary><div class="details-body"><p><a href="/api/v1/openapi.json" target="_blank" rel="noopener">OpenAPI JSON ↗</a> · <a href="/api/v1/protocol" target="_blank" rel="noopener">Module schema ↗</a></p></div></details>`;
+  content.innerHTML = heading('Settings') + `<section class="panel"><h2>Installation</h2><form id="settings-form" class="setting-form"><label for="name">Installation name</label><input id="name" value="${esc(system.name)}" maxlength="80" required><label for="locale">Locale (language tag)</label><input id="locale" value="${esc(system.locale || 'en')}" maxlength="35"><div class="spaced"><button class="primary">Save</button></div></form></section><section class="panel"><h2>Metadata export</h2><p>Includes settings, manifests, references, retained events, notifications, and audit records. Credentials are excluded.</p><a class="button-link" href="/api/v1/export" download="nexus-export.json">Download JSON</a><p class="help">This is not a restorable backup. Exported metadata can contain private information.</p></section><details class="panel"><summary>Developer contracts</summary><div class="details-body"><p><a href="/api/v1/openapi.json" target="_blank" rel="noopener">OpenAPI JSON ↗</a> · <a href="/api/v1/protocol" target="_blank" rel="noopener">Module schema ↗</a></p></div></details>`;
   document.querySelector('#settings-form').onsubmit = async event => {
     event.preventDefault(); const button = event.target.querySelector('button');
     button.disabled = true; button.classList.add('is-busy'); button.textContent = 'Saving…';
-    try { await api('/settings', { method: 'PATCH', body: JSON.stringify({ installation_name: document.querySelector('#name').value }) }); await refresh(); toast('Settings saved.'); }
+    try { await api('/settings', { method: 'PATCH', body: JSON.stringify({ installation_name: document.querySelector('#name').value, locale: document.querySelector('#locale').value }) }); await refresh(); toast('Settings saved.'); }
     catch (error) { toast(error.message, 'error'); }
     finally { button.disabled = false; button.classList.remove('is-busy'); button.textContent = 'Save'; }
   };
@@ -382,3 +387,38 @@ router.start();
     document.querySelector('#retry').onclick = () => location.reload();
   }
 })();
+
+// The opaque-origin application can request only its own declared API, never owner APIs.
+window.addEventListener('message', async event => {
+  const frame = document.querySelector('#module-application');
+  const message = event.data;
+  if (!frame || event.source !== frame.contentWindow || !message || message.channel !== 'empyrean-v1' || typeof message.id !== 'string' || message.id.length > 100) return;
+  const module = modules.find(m => m.id === view.id);
+  if (!module || module.state !== 'enabled' || !module.manifest.capabilities.includes('ui.application')) return;
+  const reply = (result, error) => { if (frame.isConnected) event.source.postMessage({channel:'empyrean-v1', id:message.id, result, error}, '*'); };
+  try {
+    if (message.action === 'context') return reply({applications:modules.filter(m=>m.state==='enabled').map(m=>({id:m.id,name:m.manifest.name})),locale:system.locale || navigator.language});
+    if (message.action === 'navigate') {
+      const target=message.module;
+      if (target !== 'nexus' && !modules.some(m=>m.id===target && m.state==='enabled')) throw Error('Unknown application');
+      router.navigate(target==='nexus' ? routes.overview : '/app/modules/'+target);
+      return;
+    }
+    if (message.action === 'external') {
+      const url=new URL(message.url);
+      if (!['https:','http:','mailto:'].includes(url.protocol) || url.username || url.password) throw Error('Unsupported external link');
+      window.open(url.href,'_blank','noopener,noreferrer');
+      return reply({opened:true});
+    }
+    if (message.action !== 'request') throw Error('Unsupported bridge action');
+    const path=message.path, method=message.method || 'GET';
+    const prefix=module.manifest.routes.api.replace(/\/$/,'');
+    if (typeof path !== 'string' || !path.startsWith(prefix+'/') || !/^\/[a-zA-Z0-9/_-]+(?:\?[^#]*)?$/.test(path) || path.includes('..') || /[%\\]/.test(path.split('?')[0]) || !['GET','POST','PUT','DELETE','PATCH'].includes(method)) throw Error('Invalid module API request');
+    const body=message.body === undefined ? undefined : JSON.stringify(message.body);
+    if (body && body.length > 2*1024*1024) throw Error('Request too large');
+    const response=await fetch('/modules/'+module.id+path,{method,headers:{'Content-Type':'application/json','X-Nexus-CSRF':csrf},body});
+    const data=await response.json();
+    if (!response.ok) throw Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail));
+    reply(data);
+  } catch(error) { reply(null,error.message); }
+});

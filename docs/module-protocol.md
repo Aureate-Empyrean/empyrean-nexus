@@ -1,5 +1,8 @@
 # Empyrean Module Protocol v1
 
+> For persistent full applications, the opt-in [0.1.2 infrastructure extension](application-infrastructure.md) supersedes the disposable-runtime limitations below.
+
+
 Normative machine-readable schema: [`protocol/module-v1.schema.json`](../protocol/module-v1.schema.json). Working example: [`manifest.json`](../examples/example-module/manifest.json). Unknown fields are rejected at every object level. A manifest is UTF-8 JSON, limited by the 64 KiB API body limit. No executable installation hooks exist.
 
 ## Fields

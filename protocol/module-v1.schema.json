@@ -161,11 +161,15 @@
           "notifications.publish",
           "references.create",
           "references.read",
-          "references.resolve"
+          "references.resolve",
+          "storage.data",
+          "blobs.read",
+          "blobs.write",
+          "ui.application"
         ]
       },
       "uniqueItems": true,
-      "maxItems": 6
+      "maxItems": 10
     },
     "routes": {
       "type": "object",

@@ -39,6 +39,12 @@ MIGRATIONS = [
     CREATE INDEX references_target ON resource_references(target,seq);
     CREATE INDEX references_creator ON resource_references(creator);
     """,
+    """
+    CREATE TABLE retained_module_data(id TEXT PRIMARY KEY);
+    CREATE TABLE blobs(id TEXT PRIMARY KEY, size INTEGER NOT NULL);
+    CREATE TABLE blob_grants(blob TEXT NOT NULL REFERENCES blobs(id), module TEXT NOT NULL,
+                             PRIMARY KEY(blob,module));
+    """,
 ]
 
 

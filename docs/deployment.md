@@ -1,5 +1,8 @@
 # Deployment
 
+> For persistent full applications, the opt-in [0.1.2 infrastructure extension](application-infrastructure.md) supersedes the disposable-runtime limitations below.
+
+
 ## Local first run
 
 Use Linux Docker Engine with the Compose plugin. The operator must already have permission to access the daemon. The supplied topology assumes `/var/run/docker.sock`; rootless/custom daemon deployments need an explicitly adapted socket mount and are not yet verified.

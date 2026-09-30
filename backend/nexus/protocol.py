@@ -13,6 +13,10 @@ from nexus import VERSION
 ROOT = Path(__file__).resolve().parents[2]
 PORTS = tuple(range(13333, 65334, 1000))
 CAPABILITIES = {
+    "storage.data",
+    "blobs.read",
+    "blobs.write",
+    "ui.application",
     "events.publish",
     "events.subscribe",
     "notifications.publish",
@@ -36,10 +40,16 @@ def validate_manifest(manifest: dict, allow_example: bool = False) -> dict:
     except InvalidSpecifier as exc:
         raise ValueError("nexus must be a PEP 440 compatibility range") from exc
     image = manifest["container"]["image"]
-    if not re.fullmatch(r"[a-z0-9][a-z0-9./:_-]*@sha256:[a-f0-9]{64}", image):
+    if not re.fullmatch(
+        r"(?:sha256:[a-f0-9]{64}|[a-z0-9][a-z0-9./:_-]*@sha256:[a-f0-9]{64})", image
+    ):
         if not (allow_example and image in {"empyrean-example:0.1.0", "empyrean-example:0.1.1"}):
             raise ValueError("Images must be pinned by sha256 digest")
     caps = set(manifest["capabilities"])
+    if caps & {"storage.data", "blobs.read", "blobs.write", "ui.application"} and Version(
+        "0.1.1"
+    ) in SpecifierSet(manifest["nexus"]):
+        raise ValueError("Application infrastructure requires Nexus >=0.1.2")
     events = manifest["events"]
     if events["produces"] and "events.publish" not in caps:
         raise ValueError("Declared producers require events.publish")

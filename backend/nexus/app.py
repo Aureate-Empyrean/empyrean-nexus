@@ -55,11 +55,14 @@ class Setup(Credentials):
 
 class Installation(StrictModel):
     installation_name: str = Field(min_length=1, max_length=80)
+    locale: str | None = Field(
+        default=None, pattern=r"^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$", max_length=35
+    )
 
 
 class Install(StrictModel):
     manifest: dict
-    grants: list[str] = Field(max_length=6)
+    grants: list[str] = Field(max_length=10)
     reuse_reference_identity: bool = False
 
 
@@ -88,8 +91,16 @@ class BodyLimit:
             if message["type"] == "http.disconnect":
                 return
             size += len(message.get("body", b""))
-            if size > MAX_BODY:
-                response = JSONResponse({"detail": "Request exceeds 64 KiB"}, status_code=413)
+            path = scope.get("path", "")
+            body_limit = (
+                2 * 1024 * 1024
+                if path.startswith("/modules/") or path == "/api/v1/module/blobs"
+                else MAX_BODY
+            )
+            if size > body_limit:
+                response = JSONResponse(
+                    {"detail": "Request exceeds endpoint body limit"}, status_code=413
+                )
                 return await response(scope, receive, send)
             messages.append(message)
             if not message.get("more_body", False):
@@ -371,6 +382,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
                 "SELECT value FROM settings WHERE key='installation_name'"
             ).fetchone()[0]
             count = conn.execute("SELECT COUNT(*) FROM modules").fetchone()[0]
+            locale = conn.execute("SELECT value FROM settings WHERE key='locale'").fetchone()
         disk = os.statvfs(data)
         return {
             "name": name,
@@ -378,6 +390,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
             "status": "healthy",
             "modules": count,
             "database": "SQLite",
+            "locale": locale[0] if locale else "en",
             "data_free_bytes": disk.f_bavail * disk.f_frsize,
             "update": {"status": "not_checked", "discovery_supported": False},
             "protocol": 1,
@@ -390,6 +403,11 @@ def create_app(data_dir=None, runtime=None, transport=None):
                 "UPDATE settings SET value=? WHERE key='installation_name'",
                 (body.installation_name,),
             )
+            if body.locale is not None:
+                conn.execute(
+                    "INSERT INTO settings(key,value) VALUES('locale',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (body.locale,),
+                )
             audit(conn, owner["user_id"], "settings.changed", "nexus")
         return {"ok": True}
 
@@ -430,14 +448,22 @@ def create_app(data_dir=None, runtime=None, transport=None):
             (prefix, prefix, module_id),
         ).fetchone()[0]
 
+    def retained_data(conn, module_id):
+        return bool(
+            conn.execute("SELECT 1 FROM retained_module_data WHERE id=?", (module_id,)).fetchone()
+            or conn.execute("SELECT 1 FROM blob_grants WHERE module=?", (module_id,)).fetchone()
+        )
+
     @app.post("/api/v1/modules/validate")
     def review(manifest: dict, owner=Depends(require_owner)):
         validate(manifest)
         with db.connect() as conn:
             retained = retained_reference_count(conn, manifest["id"])
+            data_retained = retained_data(conn, manifest["id"])
         return {
             "valid": True,
             "retained_references": retained,
+            "retained_data": data_retained,
             "capabilities": manifest["capabilities"],
             "provenance": "community",
             "warning": "Publisher identity is not verified. Enabling runs third-party container code.",
@@ -449,10 +475,13 @@ def create_app(data_dir=None, runtime=None, transport=None):
         if set(body.grants) != set(manifest["capabilities"]):
             raise HTTPException(422, "Explicit grants must match the reviewed capability request")
         with lifecycle_lock, db.connect() as conn:
-            if retained_reference_count(conn, manifest["id"]) and not body.reuse_reference_identity:
+            if (
+                retained_reference_count(conn, manifest["id"])
+                or retained_data(conn, manifest["id"])
+            ) and not body.reuse_reference_identity:
                 raise HTTPException(
                     409,
-                    "This module identity has retained resource references. Explicitly confirm reuse_reference_identity when restoring the same module data.",
+                    "This module identity has retained references or persistent data. Explicitly confirm reuse_reference_identity when restoring the same module data.",
                 )
             try:
                 conn.execute(
@@ -471,6 +500,10 @@ def create_app(data_dir=None, runtime=None, transport=None):
                 raise HTTPException(
                     409, "Module ID or reserved port is already registered"
                 ) from exc
+            if "storage.data" in manifest["capabilities"]:
+                conn.execute(
+                    "INSERT OR IGNORE INTO retained_module_data VALUES(?)", (manifest["id"],)
+                )
             audit(conn, owner["user_id"], "module.installed", manifest["id"])
         return {"id": manifest["id"], "state": "disabled"}
 
@@ -566,7 +599,14 @@ def create_app(data_dir=None, runtime=None, transport=None):
                     method,
                     url,
                     content=content,
-                    headers={"content-type": "application/json"} if content else {},
+                    headers={
+                        **({"content-type": "application/json"} if content else {}),
+                        **(
+                            {"X-Nexus-Gateway-Key": row["resolver_key"]}
+                            if row["resolver_key"]
+                            else {}
+                        ),
+                    },
                 ) as response:
                     chunks, size = [], 0
                     for chunk in response.iter_bytes():
@@ -637,9 +677,13 @@ def create_app(data_dir=None, runtime=None, transport=None):
             status_code=code,
             headers={
                 "Content-Type": content_type,
-                "Content-Security-Policy": "sandbox allow-scripts; default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'",
+                "Content-Security-Policy": "sandbox allow-scripts allow-downloads; default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'",
             },
         )
+
+    from nexus.blobs import add_blob_routes
+
+    add_blob_routes(app, db, data, require_module, capability)
 
     @app.get("/api/v1/module/context")
     def module_context(module=Depends(require_module)):

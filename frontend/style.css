@@ -178,3 +178,8 @@ h1:focus{outline:none}
 @media(max-width:700px){.sidebar{padding:16px}.brand-switch{padding-bottom:16px}.nav a{padding:10px;white-space:nowrap}.sidebar-bottom{margin:0;padding:10px 0 0}.utility-nav{display:flex;align-items:center;justify-content:space-between;padding:8px 0 0}.utility-nav a{padding:8px 10px}.version-item{padding:8px 10px}.update-card{margin-bottom:10px;padding:12px}.update-card strong{margin-bottom:8px}.notification-panel{position:fixed;top:215px;right:16px}.switcher-panel{top:73px;left:16px}.heading-actions{flex-wrap:wrap;justify-content:flex-end}.heading-actions button{padding:8px 10px;font-size:12px}.page-heading h1{font-size:25px}.activity-row{grid-template-columns:6px 1fr;gap:12px}.activity-row time{grid-column:2}.metadata{grid-template-columns:1fr;gap:5px}.metadata dd{margin-bottom:10px}.auth-box{padding:25px}.notification-scroll{max-height:45vh}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:0.01ms!important;animation-iteration-count:1!important;transition-duration:0.01ms!important;scroll-behavior:auto!important}.skeleton{opacity:.65}.is-busy::before{animation:none;border-style:dotted}}
 .warning-text{color:var(--gold)}
+
+.application-mode .sidebar,.application-mode .topbar{display:none}
+.application-mode .shell{display:block}.application-mode .workspace{margin:0;display:block}
+.application-mode #content{padding:0;max-width:none;height:100dvh}
+#module-application{display:block;border:0;width:100%;height:100dvh;background:#090a0c}
