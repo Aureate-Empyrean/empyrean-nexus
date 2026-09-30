@@ -64,7 +64,7 @@ test('motion cancels superseded animation and safely settles interrupted promise
   const second=animate(element,[{}]);
   calls[1].resolve();
   await Promise.all([first,second]);
-  assert.equal(calls[1].options.duration,200);
+  assert.equal(calls[1].options.duration,180);
   assert.equal(calls[1].options.fill,'backwards');
 });
 
@@ -102,6 +102,7 @@ async function harness(path='/app/overview', update={status:'not_checked',discov
     else if(url==='/api/v1/notifications')data=records;
     else if(url==='/api/v1/notifications/read'){records[0].read=1;data={ok:true};}
     else if(/^\/api\/v1\/modules\/[a-z-]+\/external-origins$/.test(url)&&options.method==='POST'){const id=url.split('/')[4];const m=modules.find(x=>x.id===id);m.external_origins=[...m.external_origins,JSON.parse(options.body).origin];data={module:id,external_origins:m.external_origins};}
+    else if(url==='/api/v1/activity/entries?limit=12')data={items:[{id:2,kind:'module.enable.completed',subject:'test-module',actor:'owner',occurred_at:'2026-09-29T12:00:00Z'}],next_cursor:2,has_more:true};
     else if(url==='/api/v1/activity/entries')data={items:[{id:2,kind:'module.enable.completed',subject:'test-module',actor:'owner',occurred_at:'2026-09-29T12:00:00Z'}],next_cursor:2,has_more:true};
     else if(url==='/api/v1/activity/entries?before=2')data={items:[{id:1,kind:'setup.completed',subject:'nexus',actor:'owner',occurred_at:'2026-09-29T11:00:00Z'}],next_cursor:1,has_more:false};
     else throw new Error('Unexpected test request '+url);
@@ -116,9 +117,11 @@ test('rendered navigation uses real routes and separates utilities/app switcher'
   const h=await harness();
   try {
     assert.deepEqual([...document.querySelectorAll('.nav a')].map(a=>a.textContent.trim().replace(/^[^a-zA-Z]+/,'')),['Overview','Modules','Activity']);
-    assert.equal(document.querySelector('.utility-nav a').textContent.trim(),'⚙ Settings');
-    assert.equal(document.querySelector('.sidebar').textContent.includes('Locally hosted'),false);
-    assert.equal(document.querySelector('.sidebar').textContent.includes('Guide'),false);
+    // Settings is a utility destination beside notifications, not a primary nav item.
+    assert.equal(document.querySelector('.nav [data-nav=settings]'),null);
+    assert.equal(document.querySelector('.mast-right [data-nav=settings]').getAttribute('href'),'/app/settings');
+    assert.equal(document.querySelector('.masthead').textContent.includes('Locally hosted'),false);
+    assert.equal(document.querySelector('.masthead').textContent.includes('Guide'),false);
     document.querySelector('[data-nav=modules]').click();
     assert.equal(location.pathname,'/app/modules');
     document.querySelector('[data-nav=settings]').click();
@@ -173,11 +176,11 @@ test('Activity loads, paginates and refreshes with the EasyPrivacy endpoint filt
   const h=await harness('/app/activity');
   try {
     await until(()=>document.querySelector('.activity-row'));
-    assert.match(document.querySelector('.activity-row').textContent,/Enable · completed/);
+    assert.match(document.querySelector('.activity-row').textContent,/Test module started/);
     assert.equal(document.querySelectorAll('.activity-row').length,1);
     document.querySelector('#activity-more button').click();
     await until(()=>document.querySelectorAll('.activity-row').length===2);
-    assert.match(document.querySelector('#activity-list').textContent,/Installation initialized/);
+    assert.match(document.querySelector('#activity-list').textContent,/Nexus was set up/);
     assert.equal(document.querySelector('#activity-more button'),null);
     document.querySelector('#heading-action button').click();
     await until(()=>document.querySelectorAll('.activity-row').length===1);
@@ -192,7 +195,10 @@ test('uninstall review states that persistent module data is retained, not delet
   let h=await harness('/app/modules',undefined,['storage.data']);
   try {
     await until(()=>document.querySelector('[data-module-id="test-module"]'));
-    [...document.querySelectorAll('[data-module-id="test-module"] button')].find(b=>b.textContent==='Uninstall').click();
+    // Uninstall is a rare, destructive action: it lives in the module's overflow menu.
+    document.querySelector('[data-module-id="test-module"] .row-more').click();
+    [...document.querySelectorAll('.menu .menu-item')].find(b=>b.textContent==='Uninstall…').click();
+    await until(()=>document.querySelector('#dialog').open);
     const text=document.querySelector('#dialog').textContent;
     assert.match(text,/persistent data volume is retained, not deleted/);
     assert.equal(text.includes('disposable'),false);
@@ -201,7 +207,9 @@ test('uninstall review states that persistent module data is retained, not delet
   h=await harness('/app/modules');
   try {
     await until(()=>document.querySelector('[data-module-id="test-module"]'));
-    [...document.querySelectorAll('[data-module-id="test-module"] button')].find(b=>b.textContent==='Uninstall').click();
+    document.querySelector('[data-module-id="test-module"] .row-more').click();
+    [...document.querySelectorAll('.menu .menu-item')].find(b=>b.textContent==='Uninstall…').click();
+    await until(()=>document.querySelector('#dialog').open);
     assert.match(document.querySelector('#dialog').textContent,/declares no persistent storage/);
   } finally {h.close();}
 });
@@ -338,5 +346,42 @@ test('trust decisions cannot be clicked through or stacked', async()=>{
     document.querySelectorAll('#external-actions button')[0].click();
     assert.match((await h.reply('pending')).error,/not trusted/);
     assert.deepEqual(h.opened,[]);
+  } finally {h.close();}
+});
+
+test('update and backup controls appear only on Nexus versions that implement them', async()=>{
+  let h=await harness('/app/modules',undefined,['storage.data']);
+  try {
+    await until(()=>document.querySelector('[data-module-id="test-module"] .row-more'));
+    document.querySelector('[data-module-id="test-module"] .row-more').click();
+    const labels=[...document.querySelectorAll('.menu .menu-item')].map(b=>b.textContent);
+    assert.equal(labels.some(l=>l.startsWith('Review an update')),false);
+    assert.equal(labels.some(l=>l.startsWith('Back up')),false);
+  } finally {h.close();}
+  h=await harness('/app/modules',undefined,['storage.data'],{version:'0.1.3'});
+  try {
+    await until(()=>document.querySelector('[data-module-id="test-module"] .row-more'));
+    document.querySelector('[data-module-id="test-module"] .row-more').click();
+    const labels=[...document.querySelectorAll('.menu .menu-item')].map(b=>b.textContent);
+    assert.ok(labels.includes('Review an update…'));
+    assert.ok(labels.includes('Uninstall…'));
+    assert.equal(h.calls.some(([,method])=>method!=='GET'),false,'opening menus changes nothing');
+  } finally {h.close();}
+});
+
+test('module details explain permissions in plain language and keep the technical codes', async()=>{
+  const h=await harness('/app/modules',undefined,['ui.application','storage.data']);
+  try {
+    await until(()=>document.querySelector('[data-module-id="test-module"]'));
+    const m=await (await fetch('/api/v1/modules')).json();
+    assert.ok(m.length);
+    document.querySelector('[data-module-id="test-module"] .module-main').click();
+    await until(()=>!document.querySelector('#drawer').hidden);
+    const text=document.querySelector('#drawer').textContent;
+    assert.match(text,/Keeps its own data on this server/);
+    assert.match(text,/storage\.data/);
+    assert.match(text,/Opens as a full application/);
+    document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+    await until(()=>document.querySelector('#drawer').hidden);
   } finally {h.close();}
 });

@@ -88,7 +88,7 @@ Native development can exercise setup, metadata and the UI; real container lifec
 
 ## Documentation
 
-- [Cross-module references](docs/cross-module-references.md) and [UI navigation/motion](docs/ui.md)
+- [Cross-module references](docs/cross-module-references.md) and [control center experience](docs/ui.md), [design language](docs/design-language.md)
 - [Architecture](docs/architecture.md) and [decisions](docs/adr/0001-foundation.md)
 - [Module lifecycle and recovery](docs/lifecycle-and-recovery.md): updates, backup/restore, reference reconciliation
 - [Module protocol](docs/module-protocol.md), [JSON Schema](protocol/module-v1.schema.json), [API](docs/api.md)

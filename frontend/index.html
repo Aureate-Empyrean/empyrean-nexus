@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#090A0C"><title>Empyrean Nexus · Aureate Empyrean</title>
+  <link rel="preload" href="/assets/fonts/Roboto.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/assets/style.css"><script type="module" src="/assets/app.js"></script>
 </head>
 <body>
-  <div id="app"><main class="loading"><span class="brand-mark" aria-hidden="true">✧</span><h1>Empyrean Nexus</h1><p>Connecting to your installation…</p></main></div>
+  <div id="app"><main class="loading"><svg class="nexus-mark" viewBox="0 0 32 32" aria-hidden="true"><circle class="mark-orbit" cx="16" cy="16" r="11.5"/><path class="mark-star" d="M16 8.5c.55 4.5 2.45 6.4 7 7-4.55.6-6.45 2.5-7 7-.55-4.5-2.45-6.4-7-7 4.55-.6 6.45-2.5 7-7z"/></svg><h1>Empyrean Nexus</h1><p>Connecting to your installation…</p></main></div>
   <div id="toast" role="status" aria-live="polite" hidden></div>
   <dialog id="dialog"></dialog>
 </body>

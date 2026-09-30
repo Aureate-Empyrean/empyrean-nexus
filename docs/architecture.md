@@ -52,7 +52,7 @@ V1 source ingestion is manual JSON. The source record is distinct from publisher
 
 ## UI and compatibility
 
-Neutral surfaces use the supplied palette; gold marks identity and actions. No font/CDN service is contacted. Native controls, labeled forms, visible focus, semantic headings, live error messages and responsive layouts establish the shared foundation. The logo is a replaceable typographic placeholder.
+Neutral surfaces use the supplied palette; gold marks identity and interaction emphasis. Roboto is bundled and served same-origin; no font/CDN service is contacted. Native controls, labeled forms, visible focus, semantic headings, live error messages and responsive layouts establish the shared foundation. See [design language](design-language.md).
 
 Protocol v1 is strict and rejects unknown fields. Breaking fields require a new protocol version, not silent coercion. Nexus compatibility uses documented PEP 440 ranges. Version/release metadata and an explicit `not_checked` state leave room for opt-in release discovery; no fake up-to-date result is shown.
 
@@ -62,4 +62,4 @@ The [ecosystem architecture](https://github.com/Aureate-Empyrean/architecture) i
 
 A relation does not reveal itself to a target owner automatically. It has a creator-controlled reader list, and query scopes alone do not bypass that list. Nexus stores relationships, not domain objects; resolutions are bounded and uncached. Uninstalled/disabled targets remain representable. Existing identities with retained relationships require explicit reuse confirmation on reinstall. Sensitive modules can opt out of indexing entirely; this normal metadata index is not a protected vault.
 
-The shell now routes Overview, Modules, Activity, Settings and module views through the History API. Activity adapts actual audit data; no parallel activity database is created. Notifications use a transient panel, Settings/version are sidebar utilities, and the application switcher is separate from Nexus navigation. See [UI behavior](ui.md).
+The shell routes Overview, Modules, Activity, Settings and module views through the History API. Activity adapts actual audit data; no parallel activity database is created. Notifications use a transient panel, Settings and the account are masthead utilities, and the application launcher is separate from Nexus navigation. See [control center experience](ui.md).
