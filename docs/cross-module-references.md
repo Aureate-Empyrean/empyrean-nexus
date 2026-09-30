@@ -14,10 +14,12 @@ Canonical form:
 
 ```text
 nexus:v1:<module-id>:<resource-type>:<stable-resource-id>
-nexus:v1:community-library:item:42
+nexus:v1:community-library:item:0192a5d3-7c1e-7b2a-9f4e-3d8c1b6a2e10
 ```
 
 The version is part of the grammar. The `nexus` module ID/event namespace is reserved for the platform. Module IDs and resource types are lowercase kebab-case, at most 48 characters each. The opaque resource ID is case-sensitive ASCII, 1–128 characters: a letter/digit followed by letters, digits, `.`, `_`, `~` or `-`. There is no percent decoding, URI authority, query, fragment, slash or relative traversal. Authors whose native IDs contain other characters must assign a stable safe identifier; do not derive identity from mutable display names or routes.
+
+The ecosystem architecture requires the stable resource ID to be the owner's **UUID** for the resource (UUIDv7 preferred), never a database-local integer. The v1 grammar treats the ID as opaque and accepts UUIDs; it does not reject other safe strings, so existing registrations keep working. New modules must use UUIDs.
 
 Identity is unambiguous **within one installation**. There is no federation or implicit interpretation in another installation. The type and ID are meaningful only to the owning module. Updates must preserve IDs; owners must not recycle deleted IDs for unrelated objects. Migration/merge aliases and cross-installation import mapping are not implemented.
 
@@ -50,8 +52,8 @@ An enabled module with `references.create` can POST `/api/v1/module/references`:
 
 ```json
 {
-  "source":"nexus:v1:community-library:item:42",
-  "target":"nexus:v1:community-archive:entry:91",
+  "source":"nexus:v1:community-library:item:0192a5d3-7c1e-7b2a-9f4e-3d8c1b6a2e10",
+  "target":"nexus:v1:community-archive:entry:0192a5d4-1b2c-7d3e-8f40-5a6b7c8d9e01",
   "relation":"community-library.related",
   "metadata":{"note":"owner-supplied relationship annotation"},
   "readers":["community-archive"]
@@ -88,7 +90,7 @@ The installation owner can inspect ordinary indexed metadata using GET `/api/v1/
 
 ## Resolution is separate from discovery
 
-POST `/api/v1/module/resources/resolve` with `{ "resource": "nexus:v1:community-archive:entry:91" }` requires `references.resolve` and its exact module/type scope. A known reference, an edge reader grant, or the ability to create an edge does **not** grant resolution or access to full data.
+POST `/api/v1/module/resources/resolve` with `{ "resource": "nexus:v1:community-archive:entry:0192a5d4-1b2c-7d3e-8f40-5a6b7c8d9e01" }` requires `references.resolve` and its exact module/type scope. A known reference, an edge reader grant, or the ability to create an edge does **not** grant resolution or access to full data.
 
 Nexus calls the owning container at the fixed private endpoint:
 
@@ -96,7 +98,7 @@ Nexus calls the owning container at the fixed private endpoint:
 POST /empyrean/v1/resources/resolve
 X-Nexus-Resolver-Key: <per-module shared credential>
 
-{"resource":"nexus:v1:community-archive:entry:91","requester":"community-library"}
+{"resource":"nexus:v1:community-archive:entry:0192a5d4-1b2c-7d3e-8f40-5a6b7c8d9e01","requester":"community-library"}
 ```
 
 The broker supplies `NEXUS_MODULE_ID` and `NEXUS_RESOLVER_KEY` to the owning container. The owner verifies this credential before trusting the requester, then enforces its own resource-level policy. Do not call Nexus recursively from the resolver. The credential is separate from the module bearer token and rotates on enable. Nexus keeps it in the protected SQLite metadata store because it must authenticate outbound calls; it is never returned in inspect/export or forwarded from a browser request. Docker administrators can inspect their containers' credentials.
@@ -105,16 +107,16 @@ An allowed HTTP 200 response is strictly bounded and validated:
 
 ```json
 {
-  "resource":"nexus:v1:community-archive:entry:91",
+  "resource":"nexus:v1:community-archive:entry:0192a5d4-1b2c-7d3e-8f40-5a6b7c8d9e01",
   "label":"Owner-selected label",
-  "open_path":"/entries/91",
+  "open_path":"/entries/0192a5d4-1b2c-7d3e-8f40-5a6b7c8d9e01",
   "representation":{"summary":"Optional minimal, deliberately disclosed metadata"}
 }
 ```
 
 `resource` must match the request. `label` is plain text, at most 200 characters. `open_path` is optional: a simple module-relative absolute path, no `//`, URL, dot traversal, query or fragment. It is not resource identity. Optional representation is an object limited to 2 KiB. Total response limit is 4 KiB, timeout 5 seconds, with no redirects, external addresses or inherited browser credentials. No representation is cached or copied into Nexus tables.
 
-Nexus returns `resource`, parsed `identity`, `availability`, and only for an available response the label/representation and an open descriptor `{route:"/app/modules/<owner>",module_path:"/entries/91"}`. A client may combine the route with `?path=<encoded module_path>`; the route does not identify the resource. The owner remains authoritative, including whether the caller can open/use the resource in its own UI.
+Nexus returns `resource`, parsed `identity`, `availability`, and only for an available response the label/representation and an open descriptor `{route:"/app/modules/<owner>",module_path:"/entries/0192a5d4-1b2c-7d3e-8f40-5a6b7c8d9e01"}`. A client may combine the route with `?path=<encoded module_path>`; the route does not identify the resource. The owner remains authoritative, including whether the caller can open/use the resource in its own UI.
 
 Owner response statuses: 403 → `forbidden`, 404 → `not_found`, 410 → `deleted`. Other failures, malformed/oversized replies, timeouts and redirects → `temporarily_unavailable`. Declaration/runtime checks can return `not_resolvable`, `module_disabled`, or `module_uninstalled`. These results do not delete edges. Disabled callers have no valid token and cannot perform any reference operations.
 
@@ -133,3 +135,26 @@ Index writes atomically append `nexus.reference.created`, `.updated` or `.delete
 For noncreators, delivery checks the edge's **current** reader list and a granted query scope for at least one endpoint. Revocation therefore hides queued older events too. After deletion, only the creator can receive the event; other readers discover removal when refreshing their view. This intentionally avoids retaining a second sensitive ACL/tombstone index just to deliver deletion notifications. Providers must treat events as hints, not authoritative state or guaranteed delivery.
 
 Resource owners can already publish namespaced lifecycle events such as `<module>.resource.deleted` under the existing event contract; no automatic domain interpretation is added. Owners are responsible for not putting private resource contents in broadly subscribed module events. There is no event-sourcing framework, graph engine or background reconciliation scanner.
+
+## Alignment with the hardened ecosystem architecture
+
+Checked against architecture commit `2fbfe12` (`concepts/resource-identity-and-lifecycle.md`, `concepts/module-contract.md`). The architecture leaves wire representations Open; this table records how v1 relates to it.
+
+| Architecture resolution state | Nexus v1 `availability` |
+| --- | --- |
+| available | `available` |
+| unavailable | `temporarily_unavailable`, `module_disabled`, `module_uninstalled` |
+| not accessible | `forbidden` (owners should answer 403 where existence itself is sensitive) |
+| deleted | `deleted` (owner HTTP 410) |
+| trashed | not expressible in v1 |
+| redirected | not expressible in v1 |
+
+`not_found` (owner 404) and `not_resolvable` (type declared non-resolvable) have no exact architecture equivalent. Trashed and redirected states would need an additive, versioned resolver extension; the strict v1 representation maps unknown owner replies to `temporarily_unavailable` rather than guessing.
+
+Known gaps against the module contract's required areas, not implemented in v1 because no wire protocol is designed yet:
+
+- **Outgoing-reference enumeration.** The architecture treats the reference index as derived Nexus state rebuildable from modules. v1 has no enumeration or rebuild endpoint, so creators must keep their own authoritative linkage (as they would need to for selective restore anyway).
+- **Blob usage reporting.** Modules cannot report which blobs they still use; blobs are never deleted and there is no garbage collection.
+- **Export/restore participation.** Backup is an offline copy of the Nexus volume and module data volumes; there is no module export/restore contract or restore-time purge suspension.
+
+Uninstall and disable already match the lifecycle rule: neither deletes module data volumes, shared blobs or references.

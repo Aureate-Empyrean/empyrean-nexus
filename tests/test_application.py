@@ -1,4 +1,5 @@
 import base64
+
 import pytest
 from conftest import install
 from nexus.protocol import validate_manifest

@@ -18,6 +18,8 @@ from argon2.exceptions import VerificationError
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import Version
 from pydantic import BaseModel, ConfigDict, Field
 
 from nexus import VERSION
@@ -33,6 +35,13 @@ MAX_BODY = 65536
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def compatible_with_running_nexus(manifest):
+    try:
+        return Version(VERSION) in SpecifierSet(manifest["nexus"])
+    except (InvalidSpecifier, KeyError, TypeError):
+        return False
 
 
 def digest(value):
@@ -162,9 +171,28 @@ def create_app(data_dir=None, runtime=None, transport=None):
             conn.execute(
                 "UPDATE modules SET state='error', token=NULL,resolver_key=NULL WHERE state IN ('enabling','disabling','removing')"
             )
-            enabled = conn.execute("SELECT id FROM modules WHERE state='enabled'").fetchall()
-        # A recreated gateway must rejoin the networks of existing module containers.
+            enabled = conn.execute(
+                "SELECT id,manifest FROM modules WHERE state='enabled'"
+            ).fetchall()
+        # An upgraded Nexus must not keep serving modules whose declared range excludes it.
+        compatible = []
         for row in enabled:
+            if compatible_with_running_nexus(json.loads(row["manifest"])):
+                compatible.append(row)
+                continue
+            with db.connect() as conn:
+                conn.execute(
+                    "UPDATE modules SET state='error',token=NULL,resolver_key=NULL,health='incompatible' WHERE id=?",
+                    (row["id"],),
+                )
+                audit(conn, "nexus", "module.compatibility.failed", row["id"])
+                notice(
+                    conn,
+                    "nexus",
+                    f"Module {row['id']} does not support Nexus {VERSION}. Its access was revoked; disable it and install a compatible release.",
+                )
+        # A recreated gateway must rejoin the networks of existing module containers.
+        for row in compatible:
             try:
                 running = runtime.call("status", row["id"])["state"] == "running"
             except RuntimeError:

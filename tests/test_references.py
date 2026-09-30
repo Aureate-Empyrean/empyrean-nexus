@@ -1,6 +1,7 @@
 import copy
 import json
 import sqlite3
+import uuid
 
 import httpx
 import pytest
@@ -395,3 +396,10 @@ def test_platform_events_cannot_be_spoofed_by_legacy_registration(refs):
     )
     with pytest.raises(ValueError):
         validate_manifest(m, True)
+
+
+def test_resource_identity_accepts_stable_uuid_ids():
+    # Architecture: public resource identity is the owner's stable UUID; Nexus keeps it opaque.
+    for value in (str(uuid.uuid4()), "0192a5d3-7c1e-7b2a-9f4e-3d8c1b6a2e10"):
+        identity = parse_resource(f"nexus:v1:community-library:item:{value}")
+        assert identity["id"] == value

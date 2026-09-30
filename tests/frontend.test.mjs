@@ -77,7 +77,7 @@ async function until(predicate) {
   assert.fail('UI state did not settle');
 }
 let harnessCount=0;
-async function harness(path='/app/overview', update={status:'not_checked',discovery_supported:false}) {
+async function harness(path='/app/overview', update={status:'not_checked',discovery_supported:false}, capabilities=[]) {
   const dom = new JSDOM(html, {url:'http://localhost:12333'+path});
   const names=['window','document','location','history','fetch','CSS','getComputedStyle'];
   const saved=Object.fromEntries(names.map(name=>[name,globalThis[name]]));
@@ -87,7 +87,7 @@ async function harness(path='/app/overview', update={status:'not_checked',discov
   dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;};
   const calls=[];
   const records=[{id:1,source:'nexus',message:'Recorded operational notice',created_at:'2026-09-29T12:00:00Z',read:0}];
-  const modules=[{id:'test-module',state:'enabled',health:'healthy',manifest:{id:'test-module',name:'Test module',version:'1.0.0',routes:{api:'/api'},capabilities:[]},provenance:{status:'community'}}];
+  const modules=[{id:'test-module',state:'enabled',health:'healthy',manifest:{id:'test-module',name:'Test module',version:'1.0.0',routes:{api:'/api'},capabilities},provenance:{status:'community'}}];
   globalThis.fetch=async (url,options={})=>{
     calls.push([url,options.method||'GET']);
     // EasyPrivacy: /api/v1/activity|$~third-party,xmlhttprequest
@@ -184,5 +184,23 @@ test('Activity loads, paginates and refreshes with the EasyPrivacy endpoint filt
     assert.ok(h.calls.some(([path])=>path==='/api/v1/activity/entries?before=2'));
     assert.equal(document.querySelector('[role=alert]'),null);
     assert.equal(document.querySelector('.nav').textContent.includes('Test module'),false);
+  } finally {h.close();}
+});
+
+test('uninstall review states that persistent module data is retained, not deleted', async()=>{
+  let h=await harness('/app/modules',undefined,['storage.data']);
+  try {
+    await until(()=>document.querySelector('[data-module-id="test-module"]'));
+    [...document.querySelectorAll('[data-module-id="test-module"] button')].find(b=>b.textContent==='Uninstall').click();
+    const text=document.querySelector('#dialog').textContent;
+    assert.match(text,/persistent data volume is retained, not deleted/);
+    assert.equal(text.includes('disposable'),false);
+    assert.equal(h.calls.some(([,method])=>method==='DELETE'),false);
+  } finally {h.close();}
+  h=await harness('/app/modules');
+  try {
+    await until(()=>document.querySelector('[data-module-id="test-module"]'));
+    [...document.querySelectorAll('[data-module-id="test-module"] button')].find(b=>b.textContent==='Uninstall').click();
+    assert.match(document.querySelector('#dialog').textContent,/declares no persistent storage/);
   } finally {h.close();}
 });

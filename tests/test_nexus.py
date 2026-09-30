@@ -292,3 +292,48 @@ def test_activity_entries_require_owner_and_preserve_legacy_contract(owner):
     client.cookies.clear()
     assert client.get("/api/v1/activity/entries").status_code == 401
     assert client.get("/api/v1/activity").status_code == 401
+
+
+def test_restart_revokes_modules_incompatible_with_running_nexus(owner, manifest):
+    from fastapi.testclient import TestClient
+    from nexus.app import create_app
+
+    client, runtime, db, path, _ = owner
+    install(client, manifest)
+    client.post("/api/v1/modules/empyrean-example/enable")
+    token = runtime.tokens["empyrean-example"]
+    assert (
+        client.get(
+            "/api/v1/module/context", headers={"Authorization": "Bearer " + token}
+        ).status_code
+        == 200
+    )
+    # Simulate a Nexus upgrade outside the range the installed module declared.
+    with db.connect() as conn:
+        stored = json.loads(conn.execute("SELECT manifest FROM modules").fetchone()[0])
+        stored["nexus"] = ">=0.0.1,<0.1.0"
+        conn.execute("UPDATE modules SET manifest=?", (json.dumps(stored),))
+    before = len(runtime.calls)
+    with TestClient(create_app(path, runtime)) as restarted:
+        assert (
+            restarted.get(
+                "/api/v1/module/context", headers={"Authorization": "Bearer " + token}
+            ).status_code
+            == 401
+        )
+    with db.connect() as conn:
+        row = conn.execute("SELECT state,token,resolver_key,health FROM modules").fetchone()
+        assert (row["state"], row["token"], row["resolver_key"], row["health"]) == (
+            "error",
+            None,
+            None,
+            "incompatible",
+        )
+        assert conn.execute(
+            "SELECT 1 FROM audit WHERE action='module.compatibility.failed'"
+        ).fetchone()
+        assert conn.execute(
+            "SELECT 1 FROM notifications WHERE message LIKE '%does not support Nexus%'"
+        ).fetchone()
+    # Runtime reconciliation is not attempted for a module whose access was revoked.
+    assert ("status", "empyrean-example") not in runtime.calls[before:]

@@ -292,7 +292,11 @@ function inspectDialog(module) {
   modal(module.manifest.name, `<dl class="metadata"><dt>State</dt><dd>${esc(module.state)}</dd><dt>Installed</dt><dd>${esc(date(module.installed_at))}</dd><dt>Source</dt><dd>${esc(module.source)}</dd><dt>Publisher verification</dt><dd>Unverified</dd><dt>Updates</dt><dd>Not checked</dd></dl><details><summary>Manifest and capabilities</summary><div class="details-body"><pre>${esc(JSON.stringify(module.manifest, null, 2))}</pre></div></details>`);
 }
 function uninstallDialog(module) {
-  modal('Uninstall module?', `<p>This stops and removes the container and its network, revokes its credentials, and releases port ${module.port}. Container data is disposable. Nexus audit history and resource references are retained; references may become unresolved.</p><div class="dialog-actions" id="remove-actions"></div>`);
+  const persistent = module.manifest.capabilities.includes('storage.data');
+  const data = persistent
+    ? 'Its persistent data volume is retained, not deleted; reinstalling the same module can reuse it after explicit confirmation.'
+    : 'This module declares no persistent storage; data inside its container is not kept.';
+  modal('Uninstall module?', `<p>This stops and removes the container and its network, revokes its credentials, and releases port ${module.port}. ${data} Nexus audit history, shared files and resource references are retained; references may become unresolved.</p><div class="dialog-actions" id="remove-actions"></div>`);
   const context = dialogEpoch;
   dialog.querySelector('#remove-actions').append(action('Cancel', closeDialog, 'quiet'), action('Uninstall', async () => {
     await api('/modules/' + module.id, { method: 'DELETE' }); if (context === dialogEpoch) closeDialog();
@@ -337,7 +341,7 @@ function activityText(item) {
   if (names[action]) return names[action];
   if (action.startsWith('module.')) {
     const pieces = action.split('.');
-    const verbs = { enable: 'Enable', disable: 'Disable', uninstall: 'Uninstall', installed: 'Installed', health: 'Health' };
+    const verbs = { enable: 'Enable', disable: 'Disable', uninstall: 'Uninstall', installed: 'Installed', health: 'Health', compatibility: 'Compatibility' };
     return `${verbs[pieces[1]] || pieces[1]}${pieces[2] ? ` · ${pieces[2]}` : ''}`;
   }
   return action;

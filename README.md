@@ -6,7 +6,7 @@ Empyrean Nexus is the small, self-hosted control plane for an open ecosystem of 
 
 ## Status
 
-**0.1.1 foundation / pre-release.** The reference vertical slice implements first-run setup, owner login, a dashboard, manifest review, registration, container enable/disable/removal, health checks, sandboxed routing, event publication/polling, notifications, private-by-default resource references, owner-authorized resolution, backlinks, real Activity and metadata export. This is an initial implementation, not a security-audited production platform.
+**0.1.2 foundation / pre-release.** The reference vertical slice implements first-run setup, owner login, a dashboard, manifest review, registration, container enable/disable/removal, health checks, sandboxed routing, event publication/polling, notifications, private-by-default resource references, owner-authorized resolution, backlinks, real Activity, metadata export and opt-in persistent application infrastructure (full-window sandboxed UI, retained module data volumes, shared blobs). This is an initial implementation, not a security-audited production platform.
 
 Nexus is **not** a people database, media library, location tracker, messaging product or calendar. Meridian, Atlas, Mnemosyne, Argus, Hermes and Chronos are future independent applications; none is implemented here. Nexus has no knowledge of their domain entities.
 
@@ -74,15 +74,15 @@ Native development can exercise setup, metadata and the UI; real container lifec
 ## Deliberate boundaries
 
 - One primary owner; user IDs and ownership columns preserve a migration path.
-- Stateless/disposable modules only in protocol v1: persistent module storage is deferred.
-- Strict sandboxed HTML, no general module SPA runtime, WebSockets or streaming proxy.
+- Persistent module data only through the opt-in `storage.data` volume, which is retained across disable, uninstall and reinstall; uninstall never deletes module data, shared blobs or references.
+- Module UI always runs in an opaque-origin sandbox (full-window with `ui.application`); no WebSockets or streaming proxy.
 - Events are bounded polling, not durable business workflow messaging.
 - Health is checked on demand; no background monitoring scheduler.
 - Release URLs and version metadata exist; update discovery and automatic updates do not.
 - Manual manifest source only; source providers can be added without changing runtime contracts.
 - All manual installations are shown as Community/unreviewed; publisher identity is not authenticated.
 - Export is portable JSON, not a restore system. See offline backup instructions.
-- No multi-user sharing, permission editor, module dependencies, registry, persistent storage grants, signed packages, TLS termination or password recovery UI yet.
+- No multi-user sharing, permission editor, module dependencies, registry, in-place module updates, signed packages, TLS termination or password recovery UI yet.
 
 ## Documentation
 

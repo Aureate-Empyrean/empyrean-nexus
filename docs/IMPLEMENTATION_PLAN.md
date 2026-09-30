@@ -87,3 +87,15 @@ Remaining boundaries:
 - The reference index is normal protected installation metadata, not an encrypted secrets index. Multi-user policy, protected backlinks, merge aliases, automated repair/rebuild/import and federation are not implemented. See cross-module-references.md for exact limits.
 - No automatic updates, expanded permissions for existing modules, persistent module storage or general-purpose module SPA hosting was introduced. Existing installed manifests were preserved.
 - The dependency TestClient deprecation warning remains visible; no test/runtime errors were suppressed.
+
+## Architecture alignment audit — 2026-09-30
+
+Audited against the hardened ecosystem architecture (`Aureate-Empyrean/architecture` commit `2fbfe12`). Nexus remained domain-ignorant and already matched the lifecycle rule that uninstall never deletes module data.
+
+Changed:
+
+- Startup reconciliation now revokes credentials of enabled modules whose declared Nexus range excludes the running version (state `error`, health `incompatible`, audit and notification) instead of letting them keep API access after a Nexus upgrade.
+- The uninstall review no longer claims container data is disposable for modules with `storage.data`; it states that their data volume is retained.
+- Documentation: 0.1.2 status, UUID resource identity requirement, mapping of v1 availability values to the architecture's resolution states, and the module-contract gaps (outgoing-reference enumeration, blob usage reporting, export/restore participation) that remain unimplemented.
+
+Verified: 90 backend tests, 9 frontend tests, Ruff lint/format and JavaScript syntax checks. The Docker smoke test was not run: its image build would retag the images used by the live installation on this host.

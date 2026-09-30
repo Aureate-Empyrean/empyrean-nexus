@@ -1,6 +1,6 @@
 # Security policy
 
-Empyrean Nexus 0.1.1 is an early foundation, not independently audited software. Only the current development line receives fixes; no stable support window is promised yet. Read [the security model](docs/security-model.md) before entrusting it with sensitive data.
+Empyrean Nexus 0.1.2 is an early foundation, not independently audited software. Only the current development line receives fixes; no stable support window is promised yet. Read [the security model](docs/security-model.md) before entrusting it with sensitive data.
 
 ## Report privately where available
 
