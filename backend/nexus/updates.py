@@ -3,12 +3,12 @@
 import hashlib
 import json
 import os
+import re
 import secrets
 import time
 import uuid
 
 from fastapi import Depends, HTTPException
-from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, ConfigDict, Field
 
 sleep = time.sleep  # Replaceable in tests; health verification waits between attempts.
@@ -38,21 +38,49 @@ def backup_policy(old):
     return "recommended" if "backup" in old else "unavailable"
 
 
-def _order(version):
-    """Manifest versions are semver-like; prerelease tags PEP 440 cannot parse compare by release."""
-    try:
-        return Version(version)
-    except InvalidVersion:
-        return Version(version.split("-", 1)[0])
+_IDENTIFIER = r"(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)"
+SEMVER = re.compile(
+    r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    rf"(?:-({_IDENTIFIER}(?:\.{_IDENTIFIER})*))?$",
+    flags=re.ASCII,
+)
+
+
+def compare_semver(a, b):
+    """SemVer 2.0.0 precedence (manifests carry no build metadata): -1, 0 or 1.
+
+    Returns None when either value is not SemVer, e.g. a legacy registration from before the
+    manifest grammar required it; its ordering is undefined and is never guessed."""
+    left, right = SEMVER.fullmatch(a), SEMVER.fullmatch(b)
+    if not left or not right:
+        return None
+    core = tuple(map(int, left.groups()[:3])), tuple(map(int, right.groups()[:3]))
+    if core[0] != core[1]:
+        return -1 if core[0] < core[1] else 1
+    pre_a, pre_b = left[4], right[4]
+    if pre_a == pre_b:
+        return 0
+    if pre_a is None or pre_b is None:  # A release outranks its prereleases.
+        return 1 if pre_a is None else -1
+    for x, y in zip(pre_a.split("."), pre_b.split(".")):
+        if x == y:
+            continue
+        if x.isdigit() and y.isdigit():
+            return -1 if int(x) < int(y) else 1
+        if x.isdigit() != y.isdigit():  # Numeric identifiers sort below alphanumeric ones.
+            return -1 if x.isdigit() else 1
+        return -1 if x < y else 1  # ASCII order.
+    return -1 if len(pre_a.split(".")) < len(pre_b.split(".")) else 1
 
 
 def review(old, new):
-    old_version, new_version = _order(old["version"]), _order(new["version"])
+    order = compare_semver(new["version"], old["version"])
     return {
         "module": new["id"],
         "from_version": old["version"],
         "to_version": new["version"],
-        "downgrade": new_version < old_version,
+        # None: the installed version predates the SemVer rule, so the direction is unknown.
+        "downgrade": None if order is None else order < 0,
         "image_changed": old["container"]["image"] != new["container"]["image"],
         "port": {"from": old["container"]["port"], "to": new["container"]["port"]},
         "nexus_range": {"from": old["nexus"], "to": new["nexus"]},
@@ -133,10 +161,12 @@ def add_update_routes(app, ctx, create_backup):
                     "Grants must match the reviewed capability request"
                     + (": approve " + ", ".join(missing) if missing else ""),
                 )
-            if diff["downgrade"] and not body.allow_downgrade:
+            if diff["downgrade"] is not False and not body.allow_downgrade:
                 raise HTTPException(
                     409,
-                    "This is a downgrade. Data written by the newer version may not be readable; confirm allow_downgrade.",
+                    "This is a downgrade. Data written by the newer version may not be readable; confirm allow_downgrade."
+                    if diff["downgrade"]
+                    else "The installed version is not SemVer, so the update direction is unknown; confirm allow_downgrade.",
                 )
             required = os.getenv("NEXUS_UPDATE_BACKUP", "recommend") == "require"
             if body.backup_before:

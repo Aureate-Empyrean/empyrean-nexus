@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from nexus import VERSION
 from nexus.db import Database
+from nexus.navigation import add_navigation_routes, trusted_origins
 from nexus.protocol import ROOT, validate_manifest
 from nexus.recovery import add_recovery_routes
 from nexus.references import add_reference_routes, edge_json, event_visible
@@ -553,7 +554,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
     def modules(owner=Depends(require_owner)):
         with db.connect() as conn:
             return [
-                inspect_row(row)
+                {**inspect_row(row), "external_origins": trusted_origins(conn, row["id"])}
                 for row in conn.execute("SELECT * FROM modules ORDER BY installed_at")
             ]
 
@@ -566,7 +567,9 @@ def create_app(data_dir=None, runtime=None, transport=None):
 
     @app.get("/api/v1/modules/{module_id}")
     def inspect(module_id: str, owner=Depends(require_owner)):
-        return inspect_row(get_module(module_id))
+        row = get_module(module_id)
+        with db.connect() as conn:
+            return {**inspect_row(row), "external_origins": trusted_origins(conn, module_id)}
 
     def transition(module_id, action, owner):
         with lifecycle_lock:
@@ -602,6 +605,8 @@ def create_app(data_dir=None, runtime=None, transport=None):
             with db.connect() as conn:
                 if action == "uninstall":
                     conn.execute("DELETE FROM modules WHERE id=?", (module_id,))
+                    # Navigation trust is a grant to this installation of the module, not data.
+                    conn.execute("DELETE FROM module_external_origins WHERE module=?", (module_id,))
                 else:
                     conn.execute(
                         "UPDATE modules SET state=?,token=?,resolver_key=? WHERE id=?",
@@ -874,6 +879,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
         )
 
     add_reference_routes(app, db, require_module, require_owner, runtime, transport)
+    add_navigation_routes(app, db, require_owner, audit)
     ctx = SimpleNamespace(
         db=db,
         runtime=runtime,

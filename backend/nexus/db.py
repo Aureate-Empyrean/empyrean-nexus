@@ -58,6 +58,10 @@ MIGRATIONS = [
                                 state TEXT NOT NULL, stage TEXT NOT NULL, detail TEXT NOT NULL,
                                 started_at TEXT NOT NULL, updated_at TEXT NOT NULL);
     """,
+    """
+    CREATE TABLE module_external_origins(module TEXT NOT NULL, origin TEXT NOT NULL,
+                                         approved_at TEXT NOT NULL, PRIMARY KEY(module, origin));
+    """,
 ]
 
 

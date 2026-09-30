@@ -677,3 +677,94 @@ def test_update_review_handles_semver_prerelease_versions(lab):
         "/api/v1/modules/library/update/review", json=next_version(version="0.9.0-x7")
     )
     assert older.json()["downgrade"] is True
+
+
+@pytest.mark.parametrize(
+    "lower,higher",
+    [
+        ("1.1.0-alpha.1", "1.1.0"),
+        ("1.1.0-alpha.1", "1.1.0-alpha.2"),
+        ("1.1.0-alpha.9", "1.1.0-beta.1"),
+        ("1.9.9", "2.0.0-alpha.1"),
+        ("1.0.0", "1.0.1-alpha.1"),
+        ("1.0.0-alpha", "1.0.0-alpha.1"),
+        ("1.0.0-alpha.1", "1.0.0-alpha.beta"),
+        ("1.0.0-beta.2", "1.0.0-beta.11"),
+        ("1.0.0-rc.1", "1.0.0"),
+        ("1.2.3", "1.10.0"),
+    ],
+)
+def test_semver_precedence(lower, higher):
+    assert updates.compare_semver(lower, higher) == -1
+    assert updates.compare_semver(higher, lower) == 1
+    assert updates.compare_semver(lower, lower) == 0
+
+
+def test_manifest_versions_must_be_semver():
+    from nexus.protocol import validate_manifest
+
+    for bad in ("01.0.0", "1.0.0-", "1.0.0-a..b", "1.0.0-01", "1.0.0+build", "1.0"):
+        manifest = persistent_manifest()
+        manifest["version"] = bad
+        with pytest.raises(ValueError, match="version"):
+            validate_manifest(manifest)
+    assert updates.compare_semver("01.0.0", "1.0.0") is None
+
+
+def test_stable_to_same_version_prerelease_is_a_downgrade(lab):
+    client, _, _, db, _ = lab
+    stable = next_version(version="1.1.0")
+    assert (
+        client.post(
+            "/api/v1/modules/library/update",
+            json={"manifest": stable, "grants": stable["capabilities"]},
+        ).status_code
+        == 200
+    )
+    pre = next_version(version="1.1.0-alpha.1")
+    review = client.post("/api/v1/modules/library/update/review", json=pre).json()
+    assert review["downgrade"] is True
+    refused = client.post(
+        "/api/v1/modules/library/update", json={"manifest": pre, "grants": pre["capabilities"]}
+    )
+    assert refused.status_code == 409 and "downgrade" in refused.json()["detail"]
+    allowed = client.post(
+        "/api/v1/modules/library/update",
+        json={"manifest": pre, "grants": pre["capabilities"], "allow_downgrade": True},
+    )
+    assert allowed.status_code == 200
+    upgrade = next_version(version="1.1.0-alpha.2")
+    assert (
+        client.post("/api/v1/modules/library/update/review", json=upgrade).json()["downgrade"]
+        is False
+    )
+    assert (
+        client.post(
+            "/api/v1/modules/library/update",
+            json={"manifest": upgrade, "grants": upgrade["capabilities"]},
+        ).status_code
+        == 200
+    )
+
+
+def test_legacy_non_semver_installed_version_requires_explicit_confirmation(lab):
+    client, _, _, db, _ = lab
+    with db.connect() as conn:
+        stored = json.loads(conn.execute("SELECT manifest FROM modules").fetchone()[0])
+        stored["version"] = "1.0.0-01"  # accepted by the grammar before 0.1.3's correction
+        conn.execute("UPDATE modules SET manifest=?", (json.dumps(stored),))
+    new = next_version()
+    assert (
+        client.post("/api/v1/modules/library/update/review", json=new).json()["downgrade"] is None
+    )
+    refused = client.post(
+        "/api/v1/modules/library/update", json={"manifest": new, "grants": new["capabilities"]}
+    )
+    assert refused.status_code == 409 and "unknown" in refused.json()["detail"]
+    assert (
+        client.post(
+            "/api/v1/modules/library/update",
+            json={"manifest": new, "grants": new["capabilities"], "allow_downgrade": True},
+        ).status_code
+        == 200
+    )

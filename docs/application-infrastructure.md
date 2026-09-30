@@ -26,11 +26,11 @@ Bridge requests are `{channel:'empyrean-v1',id,action,...}`; responses contain t
 same channel/ID and `result` or `error`. Actions: `context` returns enabled app
 names/IDs and Nexus locale; `request` takes module API path, method and optional
 JSON body; `navigate` takes module ID or `nexus`; `external` asks to open an
-absolute HTTP(S) or mailto URL (≤ 2048 characters, no embedded credentials). Nexus
-never opens it on the module's behalf: it shows the exact parsed destination and
-full address in its own dialog, and only the owner's click there opens it with
-noopener/noreferrer. The result is `{opened:true}`, or an error if the link was
-refused, cancelled, or another Nexus dialog was pending. Modules own their
+absolute HTTP(S) or mailto URL (≤ 2048 characters, no embedded credentials). An
+HTTP(S) URL opens directly only if the owner already trusted its exact origin for
+this module; otherwise Nexus asks the owner to trust the origin and opens nothing,
+answering `{opened:false, trusted:true}` (or an error if refused). mailto opens only
+the reviewed recipient address, never module-supplied fields. Modules own their
 navigation and switcher. See [security model](security-model.md#external-navigation).
 
 Locally built images can use immutable Docker image IDs `sha256:<64 hex>` (local

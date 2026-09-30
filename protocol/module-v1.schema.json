@@ -28,7 +28,8 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 40,
-      "pattern": "^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.-]+)?$"
+      "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)(?:-(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?$",
+      "description": "Semantic Versioning 2.0.0 without build metadata; prerelease identifiers are compared by SemVer precedence."
     },
     "publisher": {
       "type": "object",

@@ -77,7 +77,7 @@ async function until(predicate) {
   assert.fail('UI state did not settle');
 }
 let harnessCount=0;
-async function harness(path='/app/overview', update={status:'not_checked',discovery_supported:false}, capabilities=[], systemExtra={}) {
+async function harness(path='/app/overview', update={status:'not_checked',discovery_supported:false}, capabilities=[], systemExtra={}, moreModules=[]) {
   const dom = new JSDOM(html, {url:'http://localhost:12333'+path});
   const names=['window','document','location','history','fetch','CSS','getComputedStyle'];
   const saved=Object.fromEntries(names.map(name=>[name,globalThis[name]]));
@@ -87,7 +87,7 @@ async function harness(path='/app/overview', update={status:'not_checked',discov
   dom.window.HTMLDialogElement.prototype.close=function(){this.open=false;};
   const calls=[];
   const records=[{id:1,source:'nexus',message:'Recorded operational notice',created_at:'2026-09-29T12:00:00Z',read:0}];
-  const modules=[{id:'test-module',state:'enabled',health:'healthy',manifest:{id:'test-module',name:'Test module',version:'1.0.0',routes:{api:'/api'},capabilities},provenance:{status:'community'}}];
+  const modules=[{id:'test-module',state:'enabled',health:'healthy',manifest:{id:'test-module',name:'Test module',version:'1.0.0',routes:{api:'/api'},capabilities},provenance:{status:'community'},external_origins:[]},...moreModules];
   globalThis.fetch=async (url,options={})=>{
     calls.push([url,options.method||'GET']);
     // EasyPrivacy: /api/v1/activity|$~third-party,xmlhttprequest
@@ -101,6 +101,7 @@ async function harness(path='/app/overview', update={status:'not_checked',discov
     else if(url==='/api/v1/modules')data=modules;
     else if(url==='/api/v1/notifications')data=records;
     else if(url==='/api/v1/notifications/read'){records[0].read=1;data={ok:true};}
+    else if(/^\/api\/v1\/modules\/[a-z-]+\/external-origins$/.test(url)&&options.method==='POST'){const id=url.split('/')[4];const m=modules.find(x=>x.id===id);m.external_origins=[...m.external_origins,JSON.parse(options.body).origin];data={module:id,external_origins:m.external_origins};}
     else if(url==='/api/v1/activity/entries')data={items:[{id:2,kind:'module.enable.completed',subject:'test-module',actor:'owner',occurred_at:'2026-09-29T12:00:00Z'}],next_cursor:2,has_more:true};
     else if(url==='/api/v1/activity/entries?before=2')data={items:[{id:1,kind:'setup.completed',subject:'nexus',actor:'owner',occurred_at:'2026-09-29T11:00:00Z'}],next_cursor:1,has_more:false};
     else throw new Error('Unexpected test request '+url);
@@ -205,47 +206,6 @@ test('uninstall review states that persistent module data is retained, not delet
   } finally {h.close();}
 });
 
-test('bridge external links open only after owner approval of the exact address', async()=>{
-  const h=await harness('/app/modules/test-module',undefined,['ui.application']);
-  try {
-    await until(()=>document.querySelector('#module-application'));
-    const frame=document.querySelector('#module-application');
-    const opened=[], replies=[];
-    window.open=(...args)=>{opened.push(args);return null;};
-    frame.contentWindow.postMessage=data=>replies.push(data);
-    const send=(id,url)=>window.dispatchEvent(new window.MessageEvent('message',{data:{channel:'empyrean-v1',id,action:'external',url},source:frame.contentWindow}));
-    const reply=id=>replies.find(r=>r.id===id);
-    const exfil='https://evil.example/collect?notes=private%20data#more';
-    for (const [id,url] of [['bad1','javascript:alert(1)'],['bad2','https://user:pw@evil.example/'],['bad3','data:text/html,x'],['bad4','https://evil.example/?'+'a'.repeat(3000)],['bad5','/relative']]) {
-      send(id,url); await until(()=>reply(id));
-      assert.ok(reply(id).error, id); assert.equal(document.querySelector('#dialog').open,false);
-    }
-    send('ask',exfil);
-    await until(()=>document.querySelector('#external-actions'));
-    assert.equal(opened.length,0);
-    assert.equal(document.querySelector('#external-destination').textContent,'evil.example');
-    assert.equal(document.querySelector('#external-url').textContent,exfil);
-    assert.match(document.querySelector('#dialog').textContent,/query or fragment data/);
-    const [cancel,open]=document.querySelectorAll('#external-actions button');
-    assert.equal(open.disabled,true);
-    open.click();
-    assert.equal(opened.length,0);
-    // A second request cannot replace the pending decision.
-    send('queued',exfil); await until(()=>reply('queued'));
-    assert.match(reply('queued').error,/waiting/);
-    cancel.click();
-    await until(()=>reply('ask'));
-    assert.match(reply('ask').error,/not opened/); assert.equal(opened.length,0);
-    send('approve',exfil);
-    await until(()=>document.querySelector('#external-actions'));
-    await new Promise(resolve=>realTimeout(resolve,700));
-    document.querySelectorAll('#external-actions button')[1].click();
-    await until(()=>reply('approve'));
-    assert.deepEqual(reply('approve').result,{opened:true});
-    assert.deepEqual(opened,[[exfil,'_blank','noopener,noreferrer']]);
-  } finally {h.close();}
-});
-
 test('reference manifest loading is a development-only action', async()=>{
   let h=await harness('/app/modules');
   try {
@@ -256,5 +216,127 @@ test('reference manifest loading is a development-only action', async()=>{
   try {
     document.querySelector('#heading-action button.primary').click();
     assert.ok([...document.querySelectorAll('#dialog button')].some(b=>b.textContent==='Load reference manifest'));
+  } finally {h.close();}
+});
+
+async function bridgeHarness(path='/app/modules/test-module') {
+  const other={id:'other-module',state:'enabled',health:'healthy',manifest:{id:'other-module',name:'Other module',version:'1.0.0',routes:{api:'/api'},capabilities:['ui.application']},provenance:{status:'community'},external_origins:[]};
+  const h=await harness(path,undefined,['ui.application'],{},[other]);
+  await until(()=>document.querySelector('#module-application'));
+  const opened=[], replies=[];
+  window.open=(...args)=>{opened.push(args);return null;};
+  const frame=()=>document.querySelector('#module-application');
+  const send=(id,url)=>{const f=frame();f.contentWindow.postMessage=data=>replies.push(data);window.dispatchEvent(new window.MessageEvent('message',{data:{channel:'empyrean-v1',id,action:'external',url},source:f.contentWindow}));};
+  const reply=async id=>{await until(()=>replies.some(r=>r.id===id));return replies.find(r=>r.id===id);};
+  const armed=async()=>{await until(()=>document.querySelector('#external-actions'));await new Promise(r=>realTimeout(r,700));return document.querySelectorAll('#external-actions button');};
+  return {...h,opened,send,reply,armed,posts:()=>h.calls.filter(([u,m])=>m==='POST'&&u.includes('external-origins'))};
+}
+
+test('bridge trust is granted to an origin, and granting it transmits nothing (A, B)', async()=>{
+  const h=await bridgeHarness();
+  try {
+    const exfil='https://evil.example/collect/secret-path?notes=private%20data#frag';
+    h.send('first',exfil);
+    const [cancel,trust]=await h.armed();
+    // The owner sees the origin being trusted, not a link to click through.
+    assert.equal(document.querySelector('#external-origin').textContent,'https://evil.example');
+    assert.equal(document.querySelector('#dialog').textContent.includes('secret-path'),false);
+    assert.equal(document.querySelector('#dialog').textContent.includes('private'),false);
+    assert.match(document.querySelector('#dialog').textContent,/Test module/);
+    trust.click();
+    const answer=await h.reply('first');
+    assert.deepEqual(answer.result,{opened:false,trusted:true});
+    assert.deepEqual(h.opened,[],'trusting must not navigate to the requested URL');
+    assert.deepEqual(h.posts().map(([u])=>u),['/api/v1/modules/test-module/external-origins']);
+  } finally {h.close();}
+});
+
+test('a trusted origin opens directly; other scheme, host, port or lookalike does not (C, E)', async()=>{
+  const h=await bridgeHarness();
+  try {
+    h.send('trust','https://docs.example.org/start');
+    (await h.armed())[1].click();
+    await h.reply('trust');
+    const target='https://docs.example.org/guide/page?section=2#top';
+    h.send('open',target);
+    assert.deepEqual((await h.reply('open')).result,{opened:true});
+    assert.deepEqual(h.opened,[[target,'_blank','noopener,noreferrer']]);
+    for (const [id,url,origin] of [['http','http://docs.example.org/guide','http://docs.example.org'],['port','https://docs.example.org:8443/guide','https://docs.example.org:8443'],['sub','https://evil.docs.example.org/','https://evil.docs.example.org'],['suffix','https://docs.example.org.evil.example/','https://docs.example.org.evil.example'],['lookalike','https://docs.exаmple.org/','https://docs.xn--exmple-4nf.org']]) {
+      h.send(id,url);
+      await until(()=>document.querySelector('#external-origin'));
+      assert.equal(document.querySelector('#external-origin').textContent,origin,id);
+      assert.equal(h.opened.length,1,id);
+      document.querySelectorAll('#external-actions button')[0].click();
+      assert.match((await h.reply(id)).error,/not trusted/);
+    }
+  } finally {h.close();}
+});
+
+test('trust granted to one module does not apply to another (D)', async()=>{
+  const h=await bridgeHarness();
+  try {
+    h.send('a','https://shared.example/x');
+    (await h.armed())[1].click();
+    await h.reply('a');
+    document.querySelector('#product-switch').click();
+    document.querySelector('#product-menu a[href="/app/modules/other-module"]').click();
+    await until(()=>document.querySelector('#module-application')?.getAttribute('src')?.startsWith('/modules/other-module'));
+    h.send('b','https://shared.example/x');
+    await until(()=>document.querySelector('#external-origin'));
+    assert.match(document.querySelector('#dialog').textContent,/Other module/);
+    assert.equal(h.opened.length,0);
+    document.querySelectorAll('#external-actions button')[0].click();
+    assert.match((await h.reply('b')).error,/not trusted/);
+  } finally {h.close();}
+});
+
+test('credentials, unsupported schemes and oversized or relative links are rejected (F)', async()=>{
+  const h=await bridgeHarness();
+  try {
+    for (const [id,url] of [['js','javascript:alert(1)'],['data','data:text/html,x'],['file','file:///etc/passwd'],['ftp','ftp://files.example/'],['creds','https://user:pw@evil.example/'],['user','https://user@evil.example/'],['long','https://evil.example/?'+'a'.repeat(3000)],['relative','/relative'],['mailbad','mailto:a@b.example,c@d.example']]) {
+      h.send(id,url);
+      assert.ok((await h.reply(id)).error,id);
+      assert.equal(document.querySelector('#dialog').open,false,id);
+    }
+    assert.deepEqual(h.opened,[]);
+    assert.deepEqual(h.posts(),[]);
+  } finally {h.close();}
+});
+
+test('mailto opens only the reviewed address and never module-supplied content (G)', async()=>{
+  const h=await bridgeHarness();
+  try {
+    h.send('mail','mailto:friend@example.org?subject=hi&body=private%20notes&bcc=spy@evil.example');
+    const [cancel,start]=await h.armed();
+    assert.equal(document.querySelector('#external-origin').textContent,'friend@example.org');
+    assert.match(document.querySelector('#dialog').textContent,/discarded/);
+    assert.equal(document.querySelector('#dialog').textContent.includes('private notes'),false);
+    start.click();
+    assert.deepEqual((await h.reply('mail')).result,{opened:true});
+    assert.deepEqual(h.opened,[['mailto:friend@example.org','_blank','noopener,noreferrer']]);
+    // Mail never becomes a standing trust: the next request asks again.
+    h.send('again','mailto:friend@example.org');
+    await until(()=>document.querySelector('#external-origin'));
+    assert.equal(h.opened.length,1);
+    assert.deepEqual(h.posts(),[]);
+    document.querySelectorAll('#external-actions button')[0].click();
+    assert.match((await h.reply('again')).error,/not started/);
+  } finally {h.close();}
+});
+
+test('trust decisions cannot be clicked through or stacked', async()=>{
+  const h=await bridgeHarness();
+  try {
+    h.send('pending','https://new.example/');
+    await until(()=>document.querySelector('#external-actions'));
+    const trust=document.querySelectorAll('#external-actions button')[1];
+    assert.equal(trust.disabled,true);
+    trust.click();
+    assert.deepEqual(h.posts(),[]);
+    h.send('stacked','https://other.example/');
+    assert.match((await h.reply('stacked')).error,/waiting/);
+    document.querySelectorAll('#external-actions button')[0].click();
+    assert.match((await h.reply('pending')).error,/not trusted/);
+    assert.deepEqual(h.opened,[]);
   } finally {h.close();}
 });

@@ -12,7 +12,7 @@ Normative machine-readable schema: [`protocol/module-v1.schema.json`](../protoco
 | `protocol` | Integer `1`; incompatible versions are rejected |
 | `id` | Stable lowercase kebab-case identifier, maximum 48 characters; installation-unique |
 | `name`, `description` | Plain-text display metadata, maximum 80/500 characters |
-| `version` | Three-part version, optional prerelease suffix |
+| `version` | Semantic Versioning 2.0.0 without build metadata (no leading zeros, no empty prerelease identifiers); updates compare versions by SemVer precedence |
 | `publisher.name`, `publisher.originalAuthors` | Self-declared attribution; grants no trust badge |
 | `repository`, optional `homepage` | HTTPS informational URI; never fetched/executed automatically |
 | `license` | License expression identifying the module's terms |

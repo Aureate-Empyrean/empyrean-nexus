@@ -53,6 +53,7 @@ The Activity UI uses `/api/v1/activity/entries`. The original `/api/v1/activity`
 - `POST /api/v1/modules/{id}/backups`, `GET /api/v1/modules/{id}/backups`, `GET /api/v1/modules/{id}/backups/{backup}/download`.
 - `POST /api/v1/modules/{id}/backups/{backup}/restore` `{confirm_replace:true}`; `GET /api/v1/modules/{id}/restores`; `POST /api/v1/modules/{id}/restores/{job}/finalize`.
 - `POST /api/v1/modules/{id}/references/reconcile` rebuilds the module's outgoing edges from its enumeration.
+- `POST /api/v1/modules/{id}/external-origins` `{origin}` trusts one canonical origin for that module's bridge navigation; `DELETE /api/v1/modules/{id}/external-origins?origin=…` removes it. Module listings include `external_origins`. See [security model](security-model.md#external-navigation).
 - `GET /api/v1/system` also reports `development.reference_module`; `/api/v1/example-manifest` returns 404 unless development mode is enabled.
 
 Semantics and failure states: [lifecycle and recovery](lifecycle-and-recovery.md).

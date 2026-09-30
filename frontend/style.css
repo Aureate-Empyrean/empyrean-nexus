@@ -183,3 +183,4 @@ h1:focus{outline:none}
 .application-mode .shell{display:block}.application-mode .workspace{margin:0;display:block}
 .application-mode #content{padding:0;max-width:none;height:100dvh}
 #module-application{display:block;border:0;width:100%;height:100dvh;background:#090a0c}
+.trusted-origins{list-style:none;margin:0 0 16px;padding:0}.trusted-origins li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)}

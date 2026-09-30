@@ -289,7 +289,19 @@ function installDialog() {
   }, 'primary', 'Validating…'));
 }
 function inspectDialog(module) {
-  modal(module.manifest.name, `<dl class="metadata"><dt>State</dt><dd>${esc(module.state)}</dd><dt>Installed</dt><dd>${esc(date(module.installed_at))}</dd><dt>Source</dt><dd>${esc(module.source)}</dd><dt>Publisher verification</dt><dd>Unverified</dd><dt>Updates</dt><dd>Not checked</dd></dl><details><summary>Manifest and capabilities</summary><div class="details-body"><pre>${esc(JSON.stringify(module.manifest, null, 2))}</pre></div></details>`);
+  modal(module.manifest.name, `<dl class="metadata"><dt>State</dt><dd>${esc(module.state)}</dd><dt>Installed</dt><dd>${esc(date(module.installed_at))}</dd><dt>Source</dt><dd>${esc(module.source)}</dd><dt>Publisher verification</dt><dd>Unverified</dd><dt>Updates</dt><dd>Not checked</dd></dl>${(module.external_origins || []).length ? '<h3 class="spaced">Trusted external sites</h3><ul class="trusted-origins" id="trusted-origins"></ul>' : ''}<details><summary>Manifest and capabilities</summary><div class="details-body"><pre>${esc(JSON.stringify(module.manifest, null, 2))}</pre></div></details>`);
+  const list = dialog.querySelector('#trusted-origins');
+  (module.external_origins || []).forEach(origin => {
+    const item = document.createElement('li');
+    const name = document.createElement('code'); name.textContent = origin;
+    item.append(name, action('Remove', async () => {
+      const result = await api(`/modules/${module.id}/external-origins?origin=${encodeURIComponent(origin)}`, { method: 'DELETE' });
+      module.external_origins = result.external_origins;
+      item.remove();
+      toast(`${module.manifest.name} can no longer open ${origin} without asking.`);
+    }, 'quiet', 'Removing…'));
+    list.append(item);
+  });
 }
 function uninstallDialog(module) {
   const persistent = module.manifest.capabilities.includes('storage.data');
@@ -392,37 +404,57 @@ router.start();
   }
 })();
 
-// External navigation is a data channel: whatever a module puts in the URL reaches the destination.
-// Nexus never opens it on the module's behalf. The owner approves the exact parsed address in
-// Nexus's own dialog, and only that trusted click opens it. Buttons arm after a short delay so a
-// dialog raised under the pointer cannot capture a click meant for something else.
+// External navigation is a data channel: whatever a module puts in a URL reaches its destination.
+// Trust is therefore granted to an ORIGIN for ONE module, in Nexus's own dialog, and granting it
+// sends nothing: the requested URL is not opened. Only later requests to an origin the owner already
+// trusted for that module open directly. mailto never carries module-supplied subject/body/headers.
+// Buttons arm after a short delay so a dialog raised under the pointer cannot capture a click.
 const EXTERNAL_ARM_MS = 600;
+const MAIL_ADDRESS = /^[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
 function externalTarget(value) {
   if (typeof value !== 'string' || value.length > 2048) throw Error('Unsupported external link');
   const url = new URL(value);
   if (!['https:', 'http:', 'mailto:'].includes(url.protocol) || url.username || url.password) throw Error('Unsupported external link');
   return url;
 }
-function confirmExternal(module, url) {
+function mailRecipient(url) {
+  let address = '';
+  try { address = decodeURIComponent(url.pathname); } catch { /* rejected below */ }
+  if (address.length > 254 || !MAIL_ADDRESS.test(address)) throw Error('Unsupported email address');
+  return address;
+}
+function decide(label, content, confirmLabel, confirm) {
   return new Promise(resolve => {
-    const mail = url.protocol === 'mailto:';
-    const extra = mail ? (url.search ? 'It also pre-fills message content.' : '') : (url.search || url.hash ? 'The address carries query or fragment data that the destination receives.' : '');
-    modal('Open external link?', `<p>${esc(module.manifest.name)} asks to open a link outside Nexus. Nexus cannot know what the address contains; the destination receives all of it.</p><dl class="metadata"><dt>${mail ? 'Email to' : 'Destination'}</dt><dd><strong id="external-destination">${esc(mail ? url.pathname : url.host)}</strong></dd></dl><p class="help">Full address</p><pre id="external-url">${esc(url.href)}</pre>${extra ? `<p class="warning-text">${esc(extra)}</p>` : ''}<div class="dialog-actions" id="external-actions"></div>`);
+    modal(label, `${content}<div class="dialog-actions" id="external-actions"></div>`);
     const epoch = dialogEpoch;
     let settled = false;
     const done = value => { if (!settled) { settled = true; clearInterval(watch); resolve(value); } };
     // Closing or replacing the dialog by any other means is a refusal.
     const watch = setInterval(() => { if (epoch !== dialogEpoch || !dialog.open) done(false); }, 150);
     const cancel = action('Cancel', () => { done(false); return closeDialog(); }, 'quiet');
-    const open = action('Open link', () => {
+    const accept = action(confirmLabel, async () => {
       if (settled) return;
-      window.open(url.href, '_blank', 'noopener,noreferrer');
+      await confirm();
       done(true);
       return closeDialog();
     }, 'primary');
-    open.disabled = true;
-    setTimeout(() => { if (!settled) open.disabled = false; }, EXTERNAL_ARM_MS);
-    dialog.querySelector('#external-actions').append(cancel, open);
+    accept.disabled = true;
+    setTimeout(() => { if (!settled) accept.disabled = false; }, EXTERNAL_ARM_MS);
+    dialog.querySelector('#external-actions').append(cancel, accept);
+  });
+}
+function trustOrigin(module, url) {
+  const port = url.port || (url.protocol === 'https:' ? '443' : '80') + ' (default)';
+  return decide('Trust external site?', `<p>${esc(module.manifest.name)} wants to open links to this site. If you trust it, this module can open any address on it later without asking again.</p><dl class="metadata"><dt>Requested by</dt><dd>${esc(module.manifest.name)} <span class="mono muted">${esc(module.id)}</span></dd><dt>Site</dt><dd><strong id="external-origin">${esc(url.origin)}</strong></dd><dt>Scheme</dt><dd>${esc(url.protocol.slice(0, -1))}${url.protocol === 'http:' ? ' · not encrypted' : ''}</dd><dt>Host</dt><dd>${esc(url.hostname)}</dd><dt>Port</dt><dd>${esc(port)}</dd></dl><p class="help">The link it asked for is not opened now, so its path and data are not sent. Other modules are not affected. You can remove this trust in the module's details.</p>`, 'Trust this site', async () => {
+    const result = await api(`/modules/${module.id}/external-origins`, { method: 'POST', body: JSON.stringify({ origin: url.origin }) });
+    module.external_origins = result.external_origins;
+    toast(`Trusted ${url.origin} for ${module.manifest.name}. Open the link again to continue.`);
+  });
+}
+function composeMail(module, url, address) {
+  const discarded = url.search || url.hash;
+  return decide('Start an email?', `<p>${esc(module.manifest.name)} wants to start an email in your mail app.</p><dl class="metadata"><dt>To</dt><dd><strong id="external-origin">${esc(address)}</strong></dd></dl>${discarded ? '<p class="warning-text">Subject, body and other fields supplied by the module are discarded.</p>' : ''}<p class="help">Nothing is sent until you send it from your mail app.</p>`, 'Start email', () => {
+    window.open('mailto:' + address, '_blank', 'noopener,noreferrer');
   });
 }
 
@@ -444,9 +476,19 @@ window.addEventListener('message', async event => {
     }
     if (message.action === 'external') {
       const url = externalTarget(message.url);
+      if (url.protocol === 'mailto:') {
+        const address = mailRecipient(url);
+        if (dialog.open) throw Error('Nexus is waiting for another decision');
+        if (!await composeMail(module, url, address)) throw Error('The email was not started');
+        return reply({opened:true});
+      }
+      if ((module.external_origins || []).includes(url.origin)) {
+        window.open(url.href, '_blank', 'noopener,noreferrer');
+        return reply({opened:true});
+      }
       if (dialog.open) throw Error('Nexus is waiting for another decision');
-      if (!await confirmExternal(module, url)) throw Error('The link was not opened');
-      return reply({opened:true});
+      if (!await trustOrigin(module, url)) throw Error('The site was not trusted');
+      return reply({opened:false, trusted:true});
     }
     if (message.action !== 'request') throw Error('Unsupported bridge action');
     const path=message.path, method=message.method || 'GET';
