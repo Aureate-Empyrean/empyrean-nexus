@@ -107,3 +107,13 @@ Verified: 90 backend tests, 9 frontend tests, Ruff lint/format and JavaScript sy
 - Backup v1 contract (export/validate/restore/finalize) with purge suspension, blob carry-over, identity checks, reconciliation after restore and explicit `failed`/`needs_attention` states.
 - In-place module updates with a capability diff, exact grants, backup hook, health verification and honest failure without claimed rollback.
 - Reference module is development-only by default (`NEXUS_ALLOW_EXAMPLE=0`), uses a UUID resource and enumerates its references. Compose image tags moved to `empyrean-nexus:0.1.3` / `empyrean-example:0.1.2`, so building does not retag images of an existing 0.1.2 deployment.
+
+## Verification of 0.1.3 and the redesign (f25919b) — 2026-10-16
+
+Run on a fresh clone in throwaway `python:3.12-slim` and `node:22-slim` containers (the host has no venv or Node).
+
+- 154 backend tests, 18 frontend tests, Ruff lint/format and JavaScript syntax checks passed.
+- `scripts/docker_smoke.py` passed against freshly built `empyrean-nexus:0.1.3` / `empyrean-example:0.1.2` images. Its stack and volumes were removed. No live installation existed on this host, so no images in use were retagged.
+- Mnemosyne 1.1.0 (references v2 + enumeration, backup v1) passed its disposable integration test against this build: reconciliation, backup, confirmed restore with validate/reconcile/finalize, rebuilt index. Nexus needed no changes.
+
+Still open: real-browser QA of the redesign. The previous live installation (owner, modules, data volumes, `/data/backups`) is no longer present on this host.
