@@ -674,11 +674,24 @@ def create_app(data_dir=None, runtime=None, transport=None):
         row = get_module(module_id)
         status = "disabled"
         if row["state"] == "enabled":
-            try:
-                code, _, _ = upstream(row, "GET", json.loads(row["manifest"])["routes"]["health"])
-                status = "healthy" if code == 200 else "unhealthy"
-            except HTTPException:
-                status = "unreachable"
+            # The first check after a start may run before the container listens. Retry it
+            # briefly instead of recording a failure the module never had.
+            attempts = (
+                max(1, int(os.getenv("NEXUS_FIRST_HEALTH_ATTEMPTS", "10")))
+                if row["health"] == "unknown"
+                else 1
+            )
+            for attempt in range(attempts):
+                try:
+                    code, _, _ = upstream(
+                        row, "GET", json.loads(row["manifest"])["routes"]["health"]
+                    )
+                    status = "healthy" if code == 200 else "unhealthy"
+                except HTTPException:
+                    status = "unreachable"
+                if status == "healthy" or attempt == attempts - 1:
+                    break
+                time.sleep(0.5)
         with db.connect() as conn:
             conn.execute("UPDATE modules SET health=? WHERE id=?", (status, module_id))
             if status != row["health"]:

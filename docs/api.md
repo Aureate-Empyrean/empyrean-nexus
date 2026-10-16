@@ -20,7 +20,7 @@ Owner authentication is an HttpOnly SameSite=Strict cookie, valid for 12 hours. 
 | GET, DELETE | `/api/v1/modules/{id}` | Inspect / uninstall with runtime cleanup |
 | POST | `/api/v1/modules/{id}/enable` | Start constrained module container |
 | POST | `/api/v1/modules/{id}/disable` | Revoke token and remove container/network |
-| POST | `/api/v1/modules/{id}/health` | Bounded on-demand health check |
+| POST | `/api/v1/modules/{id}/health` | Bounded on-demand health check. The first check after a start retries for up to `NEXUS_FIRST_HEALTH_ATTEMPTS` × 0.5 s (default 10) before reporting a failure |
 | GET/POST/PUT/PATCH/DELETE | `/modules/{id}/{path}` | Authenticated, sandboxed module gateway |
 | GET | `/api/v1/module/context` | Bearer-authenticated module identity and grants |
 | GET, POST | `/api/v1/module/events` | Scoped event polling / publication |
