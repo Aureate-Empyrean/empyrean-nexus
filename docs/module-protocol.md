@@ -95,7 +95,7 @@ Module API traffic is limited to 120 requests per minute per module. Rate limits
 
 ## Browser contract
 
-Serve small HTML with inline styles/scripts if needed. The gateway imposes `sandbox allow-scripts`, `default-src 'none'`, no network connections/forms, and allows only data images plus inline style/script. It strips response cookies, redirects and all other upstream response headers except content type. Owner cookies, authorization and request headers are not forwarded; JSON request body and method are forwarded. A 5-second timeout and 2 MiB response cap apply.
+Serve small HTML with inline styles/scripts if needed. The gateway imposes `sandbox allow-scripts`, `default-src 'none'`, no network connections/forms, and allows only data images, data fonts (since 0.1.4) and inline style/script. It strips response cookies, redirects and all other upstream response headers except content type. Owner cookies, authorization and request headers are not forwarded; JSON request body and method are forwarded. A 5-second timeout and 2 MiB response cap apply.
 
 The module UI cannot read Nexus storage or invoke owner APIs. The Nexus-side API explorer supplies CSRF-protected requests to the declared API prefix. This is a narrow foundation, **not general-purpose SPA hosting**. Supporting a full module frontend will require a dedicated-origin or similarly explicit isolation design, not a relaxed same-origin iframe.
 
