@@ -20,50 +20,10 @@
   font-display: block;
 }
 
+/* Shared tokens come from aureate-tokens.css (canonical: architecture/design/tokens.css,
+   ADR 0008). Nexus uses the default accent family: the ecosystem gold. */
 :root {
-  color-scheme: dark;
-  --void: #090a0c;
-  --obsidian: #101216;
-  --graphite: #191c22;
-  --elevated: #222630;
-  --surface: #0d0f12;
-  --text: #f2f0ea;
-  --text-2: #a7a9af;
-  --text-3: #70747d;
-  --text-meta: color-mix(in srgb, var(--text-2) 45%, var(--text-3));
-
-  --gold: #d6ad60;
-  --gold-bright: #f0d58a;
-  --gold-deep: #8c6734;
-  --gold-hover: rgba(214, 173, 96, 0.09);
-  --gold-soft: rgba(214, 173, 96, 0.14);
-  --gold-sel: rgba(214, 173, 96, 0.18);
-  --gold-line: rgba(214, 173, 96, 0.45);
-  --focus: #f0d58a;
-
-  --good: #8fc2a9;
-  --good-soft: rgba(143, 194, 169, 0.12);
-  --bad: #ec9da3;
-  --bad-soft: rgba(236, 157, 163, 0.1);
-  --bad-strong: #b8454f;
-  --warn: #e8b36f;
-
-  --line: rgba(255, 255, 255, 0.075);
-  --line-2: rgba(255, 255, 255, 0.12);
-  --hover: rgba(255, 255, 255, 0.04);
-  --press: rgba(255, 255, 255, 0.07);
-  --shadow: 0 20px 56px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
-
-  --font-ui: "Roboto", "Noto Sans", "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
   --font-display: "Nexus Display", var(--font-ui);
-  --font-mono: "Roboto Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-
-  --motion-fast: 120ms;
-  --motion-normal: 180ms;
-  --motion-slow: 230ms;
-  --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --motion-in: cubic-bezier(0.4, 0, 1, 1);
-
   --drawer: 440px;
   font: 400 14px/1.5 var(--font-ui);
   -webkit-font-smoothing: antialiased;
@@ -96,11 +56,11 @@ p {
   margin: 0;
 }
 a {
-  color: var(--gold);
+  color: var(--accent);
   text-decoration: none;
 }
 a:hover {
-  color: var(--gold-bright);
+  color: var(--accent-hi);
 }
 code,
 pre,
@@ -115,7 +75,7 @@ pre {
   margin: 12px 0 0;
   padding: 14px 16px;
   border-radius: 10px;
-  background: var(--surface);
+  background: var(--surface-1);
   border: 1px solid var(--line);
   color: var(--text-2);
   overflow: auto;
@@ -179,7 +139,7 @@ svg.i {
   margin-top: 6px;
 }
 .error-text {
-  color: var(--bad);
+  color: var(--danger);
   font-size: 13px;
 }
 .error-text:empty {
@@ -211,10 +171,10 @@ svg.i {
   stroke-width: 1.2;
 }
 .mark-star {
-  fill: var(--gold);
+  fill: var(--accent);
 }
 .mark-node {
-  fill: var(--gold-bright);
+  fill: var(--accent-hi);
 }
 .display {
   font-family: var(--font-ui);
@@ -248,10 +208,10 @@ button,
   cursor: pointer;
   text-decoration: none;
   transition:
-    background var(--motion-fast) var(--motion-ease),
-    border-color var(--motion-fast) var(--motion-ease),
-    color var(--motion-fast) var(--motion-ease),
-    transform 80ms var(--motion-ease);
+    background var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out),
+    transform 80ms var(--ease-out);
 }
 button:hover,
 .button-link:hover {
@@ -272,18 +232,18 @@ button.is-busy {
 }
 .primary,
 .button-link.primary {
-  background: var(--gold);
+  background: var(--accent);
   border-color: transparent;
   color: #17130a;
   font-weight: 600;
 }
 .primary:hover,
 .button-link.primary:hover {
-  background: var(--gold-bright);
+  background: var(--accent-hi);
   color: #17130a;
 }
 .danger {
-  background: var(--bad-strong);
+  background: var(--danger-strong);
   border-color: transparent;
   color: #fff;
   font-weight: 600;
@@ -335,12 +295,12 @@ button.is-busy {
   padding: 0 2px;
   border: 0;
   background: none;
-  color: var(--gold);
+  color: var(--accent);
   font-weight: 500;
 }
 .link-button:hover {
   background: none;
-  color: var(--gold-bright);
+  color: var(--accent-hi);
 }
 .is-busy::before {
   content: "";
@@ -419,7 +379,7 @@ button.is-busy {
 }
 .chevron {
   color: var(--text-meta);
-  transition: transform var(--motion-fast) var(--motion-ease);
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 .product-switch[aria-expanded="true"] .chevron {
   transform: rotate(180deg);
@@ -441,8 +401,8 @@ button.is-busy {
   color: var(--text-2);
   font-weight: 500;
   transition:
-    color var(--motion-fast) var(--motion-ease),
-    background var(--motion-fast) var(--motion-ease);
+    color var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out);
 }
 .nav a:hover {
   color: var(--text);
@@ -456,7 +416,7 @@ button.is-busy {
   color: var(--text);
 }
 .nav a.active .i {
-  color: var(--gold);
+  color: var(--accent);
 }
 .nav-ink {
   position: absolute;
@@ -465,16 +425,16 @@ button.is-busy {
   height: 2px;
   width: 0;
   border-radius: 2px;
-  background: var(--gold);
+  background: var(--accent);
   transition:
-    transform var(--motion-normal) var(--motion-ease),
-    width var(--motion-normal) var(--motion-ease),
-    opacity var(--motion-normal);
+    transform var(--motion-base) var(--ease-out),
+    width var(--motion-base) var(--ease-out),
+    opacity var(--motion-base);
   pointer-events: none;
 }
 .settings-link.active {
-  color: var(--gold);
-  background: var(--gold-soft);
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 .account {
   width: 38px;
@@ -490,7 +450,7 @@ button.is-busy {
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: linear-gradient(150deg, var(--gold), var(--gold-deep));
+  background: linear-gradient(150deg, var(--accent), var(--accent-deep));
   color: #17130a;
   font-weight: 700;
   font-size: 13px;
@@ -506,7 +466,7 @@ button.is-busy {
   height: 17px;
   padding: 0 4px;
   border-radius: 9px;
-  background: var(--gold);
+  background: var(--accent);
   color: #17130a;
   font-size: 10px;
   font-weight: 700;
@@ -518,15 +478,15 @@ button.is-busy {
   height: 30px;
   padding: 0 12px;
   border-radius: 15px;
-  background: var(--gold-soft);
-  border-color: var(--gold-line);
-  color: var(--gold-bright);
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent-hi);
   font-size: 12.5px;
   margin-right: 6px;
 }
 .update-pill:hover {
-  background: var(--gold-sel);
-  color: var(--gold-bright);
+  background: var(--accent-sel);
+  color: var(--accent-hi);
 }
 
 /* ───────── Popovers ───────── */
@@ -573,12 +533,12 @@ button.is-busy {
 }
 .launcher-item:hover,
 .launcher-item:focus-visible {
-  background: var(--gold-hover);
+  background: var(--accent-hover);
   color: var(--text);
   outline: none;
 }
 .launcher-item.current {
-  background: var(--gold-soft);
+  background: var(--accent-soft);
 }
 .launcher-glyph {
   display: grid;
@@ -599,7 +559,7 @@ button.is-busy {
   font-size: 12px;
 }
 .tick {
-  color: var(--gold);
+  color: var(--accent);
 }
 .launcher-manage {
   display: flex;
@@ -703,17 +663,17 @@ button.is-busy {
 }
 .menu-item:hover:not(:disabled),
 .menu-item:focus-visible {
-  background: var(--gold-hover);
+  background: var(--accent-hover);
   outline: none;
 }
 .menu-item.danger,
 .menu-item.danger .i {
-  color: var(--bad);
+  color: var(--danger);
   background: transparent;
   font-weight: 400;
 }
 .menu-item.danger:hover:not(:disabled) {
-  background: var(--bad-soft);
+  background: var(--danger-soft);
 }
 .menu-sep {
   height: 1px;
@@ -727,7 +687,7 @@ button.is-busy {
   max-width: 1120px;
   margin: 0 auto;
   padding: 34px 32px 72px;
-  transition: padding-right var(--motion-slow) var(--motion-ease);
+  transition: padding-right var(--motion-slow) var(--ease-out);
 }
 .content:focus {
   outline: none;
@@ -760,7 +720,7 @@ button.is-busy {
 .eyebrow {
   font-size: 12px;
   font-weight: 500;
-  color: var(--gold);
+  color: var(--accent);
   letter-spacing: 0.02em;
 }
 .section-head {
@@ -785,7 +745,7 @@ button.is-busy {
 .section-link .i {
   width: 14px;
   height: 14px;
-  transition: transform var(--motion-fast) var(--motion-ease);
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 .section-link:hover .i {
   transform: translateX(2px);
@@ -828,14 +788,14 @@ button.is-busy {
   height: 24px;
 }
 .tone-bad .hero-orb {
-  color: var(--bad);
-  background: var(--bad-soft);
+  color: var(--danger);
+  background: var(--danger-soft);
   box-shadow: inset 0 0 0 1px rgba(236, 157, 163, 0.3);
 }
 .tone-pending .hero-orb {
-  color: var(--gold-bright);
-  background: var(--gold-soft);
-  box-shadow: inset 0 0 0 1px var(--gold-line);
+  color: var(--accent-hi);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
 }
 .tone-pending .hero-orb .i {
   animation: spin 1.6s linear infinite;
@@ -862,7 +822,7 @@ button.is-busy {
   margin-bottom: 18px;
   padding: 6px;
   border-radius: 14px;
-  background: var(--bad-soft);
+  background: var(--danger-soft);
   border: 1px solid rgba(236, 157, 163, 0.18);
 }
 .attention-row {
@@ -891,13 +851,13 @@ button.is-busy {
   justify-content: flex-start;
   height: 42px;
   margin-bottom: 18px;
-  background: var(--gold-hover);
+  background: var(--accent-hover);
   border-color: rgba(214, 173, 96, 0.2);
-  color: var(--gold-bright);
+  color: var(--accent-hi);
 }
 .notice-line:hover {
-  background: var(--gold-soft);
-  color: var(--gold-bright);
+  background: var(--accent-soft);
+  color: var(--accent-hi);
 }
 .notice-line .end {
   margin-left: auto;
@@ -1011,7 +971,7 @@ code.wrap {
 }
 .activity-row.tone-bad .activity-glyph,
 .activity-row.tone-bad .activity-text span {
-  color: var(--bad);
+  color: var(--danger);
 }
 .activity-row.tone-quiet .activity-text span {
   color: var(--text-2);
@@ -1068,8 +1028,8 @@ code.wrap {
   border-bottom: 1px solid var(--line);
   cursor: pointer;
   transition:
-    background var(--motion-fast) var(--motion-ease),
-    box-shadow var(--motion-fast) var(--motion-ease);
+    background var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
 }
 .module-row:hover {
   background: var(--hover);
@@ -1080,8 +1040,8 @@ code.wrap {
   border-radius: 10px;
 }
 .module-row.is-selected {
-  background: var(--gold-hover);
-  box-shadow: inset 2px 0 0 var(--gold);
+  background: var(--accent-hover);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 .module-main {
   min-width: 0;
@@ -1137,7 +1097,7 @@ code.wrap {
   border-radius: 11px;
   background: linear-gradient(160deg, rgba(214, 173, 96, 0.2), rgba(140, 103, 52, 0.12));
   box-shadow: inset 0 0 0 1px rgba(214, 173, 96, 0.22);
-  color: var(--gold-bright);
+  color: var(--accent-hi);
   font-weight: 600;
   font-size: 16px;
 }
@@ -1170,17 +1130,17 @@ code.wrap {
   box-shadow: 0 0 0 3px rgba(143, 194, 169, 0.16);
 }
 .status.tone-bad {
-  color: var(--bad);
+  color: var(--danger);
 }
 .status.tone-bad .status-dot {
-  background: var(--bad);
+  background: var(--danger);
   box-shadow: 0 0 0 3px rgba(236, 157, 163, 0.16);
 }
 .status.tone-pending {
-  color: var(--gold-bright);
+  color: var(--accent-hi);
 }
 .status.tone-pending .status-dot {
-  background: var(--gold);
+  background: var(--accent);
   animation: breathe 1.1s ease-in-out infinite;
 }
 .status.tone-neutral {
@@ -1214,8 +1174,8 @@ code.wrap {
   background: rgba(232, 179, 111, 0.1);
 }
 .tag.bad {
-  color: var(--bad);
-  background: var(--bad-soft);
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 .tag.good {
   color: var(--good);
@@ -1285,11 +1245,11 @@ code.wrap {
   margin-bottom: 14px;
 }
 .drawer-note.tone-bad {
-  background: var(--bad-soft);
-  color: var(--bad);
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 .drawer-note.tone-pending {
-  background: var(--gold-hover);
+  background: var(--accent-hover);
   color: var(--text);
 }
 .drawer-note .d-actions {
@@ -1339,7 +1299,7 @@ code.wrap {
 }
 .permission > .i {
   margin-top: 2px;
-  color: var(--gold);
+  color: var(--accent);
 }
 .permission div {
   display: grid;
@@ -1408,7 +1368,7 @@ code.wrap {
   color: var(--good);
 }
 .state-word.state-failed {
-  color: var(--bad);
+  color: var(--danger);
 }
 details > summary {
   list-style: none;
@@ -1435,7 +1395,7 @@ details > summary::-webkit-details-marker {
 .disclosure {
   width: 14px !important;
   height: 14px !important;
-  transition: transform var(--motion-fast) var(--motion-ease);
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 details[open] > summary .disclosure {
   transform: rotate(90deg);
@@ -1463,7 +1423,7 @@ details[open] > summary .disclosure {
   color: var(--text-meta);
 }
 .notification.unread .notice-glyph {
-  color: var(--gold);
+  color: var(--accent);
 }
 .notification-meta {
   display: flex;
@@ -1475,7 +1435,7 @@ details[open] > summary .disclosure {
 }
 .unread-label {
   margin-left: 4px;
-  color: var(--gold);
+  color: var(--accent);
   font-weight: 600;
 }
 .notification-history {
@@ -1494,7 +1454,7 @@ details[open] > summary .disclosure {
 .empty-compact .i {
   width: 22px;
   height: 22px;
-  color: var(--gold-deep);
+  color: var(--accent-deep);
 }
 
 /* Settings */
@@ -1553,7 +1513,7 @@ textarea {
   padding: 0 12px;
   border-radius: 9px;
   border: 1px solid var(--line-2);
-  background: var(--surface);
+  background: var(--surface-1);
   color: var(--text);
   transition:
     border-color var(--motion-fast),
@@ -1568,7 +1528,7 @@ textarea {
 }
 input:not([type="checkbox"]):focus,
 textarea:focus {
-  border-color: var(--gold);
+  border-color: var(--accent);
   background: var(--graphite);
 }
 input::placeholder,
@@ -1578,7 +1538,7 @@ textarea::placeholder {
 input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: var(--gold);
+  accent-color: var(--accent);
   flex: none;
 }
 .check-line {
@@ -1598,7 +1558,7 @@ input[type="checkbox"] {
 .check-line.consent {
   padding: 12px;
   border-radius: 10px;
-  background: var(--gold-hover);
+  background: var(--accent-hover);
   border: 1px solid rgba(214, 173, 96, 0.2);
 }
 .manifest-input {
@@ -1611,7 +1571,7 @@ input[type="checkbox"] {
   gap: 10px;
 }
 .file-line label {
-  color: var(--gold);
+  color: var(--accent);
   cursor: pointer;
 }
 
@@ -1633,7 +1593,7 @@ dialog.wide {
 dialog::backdrop {
   background: rgba(4, 5, 6, 0.66);
   backdrop-filter: blur(3px);
-  animation: fade var(--motion-normal) var(--motion-ease);
+  animation: fade var(--motion-base) var(--ease-out);
 }
 @keyframes fade {
   from {
@@ -1693,7 +1653,7 @@ dialog::backdrop {
   margin: 0;
   padding: 14px 16px;
   border-radius: 12px;
-  background: var(--surface);
+  background: var(--surface-1);
 }
 .metadata dt {
   color: var(--text-meta);
@@ -1705,7 +1665,7 @@ dialog::backdrop {
   overflow-wrap: anywhere;
 }
 #external-origin {
-  color: var(--gold-bright);
+  color: var(--accent-hi);
   font-weight: 600;
 }
 .review {
@@ -1730,7 +1690,7 @@ dialog::backdrop {
   align-items: flex-start;
   padding: 14px;
   border-radius: 12px;
-  background: var(--surface);
+  background: var(--surface-1);
 }
 .review-identity h3 {
   color: var(--text);
@@ -1754,7 +1714,7 @@ dialog::backdrop {
   color: var(--text);
 }
 .version-change .i {
-  color: var(--gold);
+  color: var(--accent);
 }
 .facts.diff {
   grid-template-columns: 1fr;
@@ -1822,7 +1782,7 @@ dialog::backdrop {
   border-color: rgba(236, 157, 163, 0.35);
 }
 #toast[data-type="error"] .i {
-  color: var(--bad);
+  color: var(--danger);
 }
 
 /* Empty, loading and error states */
@@ -1854,7 +1814,7 @@ dialog::backdrop {
   width: 34px !important;
   height: 34px !important;
   stroke-width: 1.2 !important;
-  color: var(--gold);
+  color: var(--accent);
 }
 .empty-state .heading-actions {
   margin-top: 8px;
@@ -1950,7 +1910,7 @@ dialog::backdrop {
 }
 .poster-sub {
   font-size: 11px;
-  color: var(--gold);
+  color: var(--accent);
   letter-spacing: 0.42em;
 }
 .has-display-font .poster-sub {
@@ -2023,7 +1983,7 @@ dialog::backdrop {
   background: rgba(9, 10, 12, 0.94);
   box-shadow: 0 1px 0 rgba(214, 173, 96, 0.35);
   transition:
-    transform var(--motion-slow) var(--motion-ease),
+    transform var(--motion-slow) var(--ease-out),
     box-shadow var(--motion-slow);
 }
 .application-mode .masthead:hover,
@@ -2110,7 +2070,7 @@ dialog::backdrop {
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-fast: 1ms;
-    --motion-normal: 1ms;
+    --motion-base: 1ms;
     --motion-slow: 1ms;
   }
   *,

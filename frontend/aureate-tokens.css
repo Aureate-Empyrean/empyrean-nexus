@@ -1,0 +1,71 @@
+/* Aureate Empyrean shared design tokens — version 1.
+   Canonical source: architecture/design/tokens.css (ADR 0008).
+   Applications vendor this file unchanged and load it before their own styles.
+   A module overrides only the accent family (--accent*, --focus) and --font-display
+   in its own :root. Never edit a vendored copy; change this file and re-vendor. */
+
+:root {
+  color-scheme: dark;
+
+  /* Shared neutrals (design-system.md) */
+  --void: #090a0c;
+  --obsidian: #101216;
+  --graphite: #191c22;
+  --elevated: #222630;
+  --surface-1: #0d0f12;
+  --surface-2: #14161b;
+
+  /* Text */
+  --text: #f2f0ea;
+  --text-2: #a7a9af;
+  --text-3: #70747d;
+  /* Metadata: between Secondary and Muted, readable at 11-13 px (AA). */
+  --text-meta: color-mix(in srgb, var(--text-2) 45%, var(--text-3));
+
+  /* Lines, interaction and depth */
+  --line: rgba(255, 255, 255, 0.075);
+  --line-2: rgba(255, 255, 255, 0.12);
+  --hover: rgba(255, 255, 255, 0.045);
+  --press: rgba(255, 255, 255, 0.07);
+  --shadow: 0 20px 56px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.38);
+
+  /* Aureate ecosystem identity: ecosystem marks in every application */
+  --aureate: #d6ad60;
+  --aureate-bright: #f0d58a;
+  --aureate-deep: #8c6734;
+
+  /* Module accent family. Defaults are the ecosystem gold (Nexus); modules override. */
+  --accent: var(--aureate);
+  --accent-hi: var(--aureate-bright);
+  --accent-deep: var(--aureate-deep);
+  --accent-hover: rgba(214, 173, 96, 0.09);
+  --accent-soft: rgba(214, 173, 96, 0.14);
+  --accent-sel: rgba(214, 173, 96, 0.18);
+  --accent-line: rgba(214, 173, 96, 0.45);
+  --focus: var(--accent-hi);
+
+  /* Semantic states: identical in every application */
+  --good: #8fc2a9;
+  --good-soft: rgba(143, 194, 169, 0.12);
+  --danger: #ec9da3;
+  --danger-soft: rgba(236, 157, 163, 0.1);
+  --danger-strong: #b8454f;
+  --warn: #e8b36f;
+
+  /* Type. Roboto (SIL OFL 1.1) is bundled by each application. */
+  --font-ui: "Roboto", "Noto Sans", "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
+  --font-display: var(--font-ui);
+  --font-mono: "Roboto Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  /* Motion */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 230ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+
+  /* Shape */
+  --radius: 10px;
+  --radius-sm: 7px;
+}

@@ -117,3 +117,6 @@ Run on a fresh clone in throwaway `python:3.12-slim` and `node:22-slim` containe
 - Mnemosyne 1.1.0 (references v2 + enumeration, backup v1) passed its disposable integration test against this build: reconciliation, backup, confirmed restore with validate/reconcile/finalize, rebuilt index. Nexus needed no changes.
 
 Still open: real-browser QA of the redesign. The previous live installation (owner, modules, data volumes, `/data/backups`) is no longer present on this host.
+## Shared design tokens — Nexus 0.1.4, 2026-10-16
+
+Architecture ADR 0008: one canonical token file, vendored by every application. `frontend/aureate-tokens.css` is that file unchanged; `style.css` keeps only Nexus specifics (display face, drawer width) and uses the shared names (`--accent*` instead of `--gold*`, `--danger*` instead of `--bad*`, `--surface-1`, `--motion-base`, `--ease-out/--ease-in`). Values are unchanged apart from the canonical shadow and hover alpha. Module applications now receive `font-src data:` so they can embed the shared Roboto face; they still have no network access. A test keeps every used token defined and the token file loaded first.

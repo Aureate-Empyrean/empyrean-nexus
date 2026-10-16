@@ -84,7 +84,10 @@ def test_lifecycle_routing_revocation_and_port_registry(owner, manifest):
     assert client.get("/api/v1/module/context", headers=headers).status_code == 200
     page = client.get("/modules/empyrean-example/")
     assert page.status_code == 200
-    assert "sandbox allow-scripts" in page.headers["content-security-policy"]
+    policy = page.headers["content-security-policy"]
+    assert "sandbox allow-scripts" in policy
+    # Inline fonts only (shared Roboto face); still no network for module content.
+    assert "font-src data:;" in policy and "connect-src 'none'" in policy
     assert "set-cookie" not in page.headers and "location" not in page.headers
     assert "cookie" not in requests[-1].headers
     assert "authorization" not in requests[-1].headers
@@ -196,7 +199,7 @@ def test_review_grants_exports_and_body_limits(owner, manifest):
     assert "token" not in exported["modules"][0]
     assert "password" not in json.dumps(exported)
     assert client.post("/api/v1/modules/validate", content=b"x" * 70000).status_code == 413
-    assert client.get("/api/v1/openapi.json").json()["info"]["version"] == "0.1.3"
+    assert client.get("/api/v1/openapi.json").json()["info"]["version"] == "0.1.4"
 
 
 def test_schema_migrations_persist_and_reject_downgrade(tmp_path):
@@ -338,3 +341,18 @@ def test_restart_revokes_modules_incompatible_with_running_nexus(owner, manifest
         ).fetchone()
     # Runtime reconciliation is not attempted for a module whose access was revoked.
     assert ("status", "empyrean-example") not in runtime.calls[before:]
+
+
+def test_styles_use_only_defined_shared_tokens():
+    import re
+    from pathlib import Path
+
+    frontend = Path(__file__).resolve().parents[1] / "frontend"
+    tokens = (frontend / "aureate-tokens.css").read_text()
+    assert tokens.startswith("/* Aureate Empyrean shared design tokens")
+    styles = (frontend / "style.css").read_text() + (frontend / "motion.js").read_text()
+    defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", tokens + styles))
+    used = set(re.findall(r"var\((--[a-z0-9-]+)", styles))
+    assert used <= defined, used - defined
+    html = (frontend / "index.html").read_text()
+    assert html.index("/assets/aureate-tokens.css") < html.index("/assets/style.css")

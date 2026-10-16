@@ -43,7 +43,7 @@ Reference events contain only edge ID/creator and are filtered using current vis
 
 ## External navigation
 
-A module's own content cannot reach the network (`connect-src 'none'`, no forms, `img-src data:`, no popups or top navigation, and Nexus's `frame-src 'self'` blocks the frame from navigating itself elsewhere). The bridge's `external` action was the remaining way out: a URL is a data channel, since anything the module puts in its path, query or fragment reaches the destination. Before 0.1.3 Nexus opened any HTTP(S)/mailto URL a module requested, relying on the user's click inside the module, so a malicious module could send private data to any server.
+A module's own content cannot reach the network (`connect-src 'none'`, no forms, `img-src data:` and `font-src data:` (inline resources only; since 0.1.4 so applications can embed the shared Roboto face, ADR 0008 in the architecture repository), no popups or top navigation, and Nexus's `frame-src 'self'` blocks the frame from navigating itself elsewhere). The bridge's `external` action was the remaining way out: a URL is a data channel, since anything the module puts in its path, query or fragment reaches the destination. Before 0.1.3 Nexus opened any HTTP(S)/mailto URL a module requested, relying on the user's click inside the module, so a malicious module could send private data to any server.
 
 Showing the full URL and letting the owner click it (the first 0.1.3 attempt) is not enough: one click would both approve an attacker's server and send the payload the module placed in the address. Nexus therefore separates **trust** from **navigation**:
 
