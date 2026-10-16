@@ -6,7 +6,7 @@ Empyrean Nexus is the small, self-hosted control plane for an open ecosystem of 
 
 ## Status
 
-**0.1.3 foundation / pre-release.** The reference vertical slice implements first-run setup, owner login, a dashboard, manifest review, registration, container enable/disable/removal, health checks, sandboxed routing, event publication/polling, notifications, private-by-default resource references, owner-authorized resolution, backlinks, real Activity, metadata export and opt-in persistent application infrastructure (full-window sandboxed UI, retained module data volumes, shared blobs), in-place module updates with capability review and health verification, a module backup/restore contract, and reference reconciliation from module-owned state. This is an initial implementation, not a security-audited production platform.
+**0.1.4 foundation / pre-release.** The reference vertical slice implements first-run setup, owner login, a dashboard, manifest review, registration, container enable/disable/removal, health checks, sandboxed routing, event publication/polling, notifications, private-by-default resource references, owner-authorized resolution, backlinks, real Activity, metadata export and opt-in persistent application infrastructure (full-window sandboxed UI, retained module data volumes, shared blobs), in-place module updates with capability review and health verification, a module backup/restore contract, reference reconciliation from module-owned state, and the shared Aureate design tokens (module applications may embed fonts). This is an initial implementation, not a security-audited production platform.
 
 Nexus is **not** a people database, media library, location tracker, messaging product or calendar. Meridian, Atlas, Mnemosyne, Argus, Hermes and Chronos are future independent applications; none is implemented here. Nexus has no knowledge of their domain entities.
 
@@ -16,10 +16,10 @@ Requires Linux Docker Engine and the Compose plugin, with permission to use Dock
 
 ```sh
 docker compose up -d --build
-docker compose exec nexus cat /data/setup-token
+docker compose -p nexus exec nexus cat /data/setup-token
 ```
 
-Open **http://localhost:12333**. Enter the locally generated claim token and create your owner account. There are no default credentials. Passwords require at least 12 characters and are hashed with Argon2id. The claim token is removed after setup.
+`-p nexus` lets the second command work from any directory; use your `NEXUS_INSTALLATION` value if you changed it. Open **http://localhost:12333**. Enter the locally generated claim token and create your owner account. There are no default credentials. Passwords require at least 12 characters and are hashed with Argon2id. The claim token is removed after setup.
 
 The default bind is loopback. For remote access, configure an HTTPS reverse proxy and `NEXUS_PUBLIC_ORIGIN`; see [deployment](docs/deployment.md). Do not expose the initial HTTP installation directly to the Internet.
 

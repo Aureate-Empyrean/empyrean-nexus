@@ -9,9 +9,9 @@ export async function animate(element, frames, options = {}) {
   if (!element || reducedMotion() || !element.animate) return;
   active.get(element)?.cancel();
   const animation = element.animate(frames, {
-    duration: parseInt(token('--motion-normal', '180'), 10),
+    duration: parseInt(token('--motion-base', '180'), 10),
     fill: 'backwards',
-    easing: token('--motion-ease', 'cubic-bezier(.2,.8,.2,1)'),
+    easing: token('--ease-out', 'cubic-bezier(.2,.8,.2,1)'),
     ...options,
   });
   active.set(element, animation);

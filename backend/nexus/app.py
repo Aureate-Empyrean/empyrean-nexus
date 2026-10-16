@@ -724,7 +724,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
             status_code=code,
             headers={
                 "Content-Type": content_type,
-                "Content-Security-Policy": "sandbox allow-scripts allow-downloads; default-src 'none'; style-src 'unsafe-inline'; img-src data:; script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'",
+                "Content-Security-Policy": "sandbox allow-scripts allow-downloads; default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'",
             },
         )
 

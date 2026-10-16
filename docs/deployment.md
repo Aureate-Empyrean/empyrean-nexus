@@ -10,7 +10,7 @@ Use Linux Docker Engine with the Compose plugin. The operator must already have 
 ```sh
 cp .env.example .env
 docker compose up -d --build
-docker compose exec nexus cat /data/setup-token
+docker compose -p nexus exec nexus cat /data/setup-token
 ```
 
 Visit http://localhost:12333, supply the claim token, choose an installation name and create a unique owner username/passphrase. The token is sensitive; do not paste it in issue reports. It is generated inside the data volume and deleted after successful setup. Existing installations present login instead. Do not delete the data volume to reset a forgotten password; that destroys installation metadata.
