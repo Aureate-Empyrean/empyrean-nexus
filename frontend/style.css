@@ -99,7 +99,7 @@ kbd {
   border-radius: 6px;
 }
 ::selection {
-  background: rgba(214, 173, 96, 0.32);
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
 }
 [hidden] {
   display: none !important;
@@ -167,7 +167,7 @@ svg.i {
 }
 .mark-orbit {
   fill: none;
-  stroke: rgba(214, 173, 96, 0.45);
+  stroke: color-mix(in srgb, var(--accent) 45%, transparent);
   stroke-width: 1.2;
 }
 .mark-star {
@@ -765,11 +765,11 @@ button.is-busy {
   inset: -40px auto auto -60px;
   width: 360px;
   height: 220px;
-  background: radial-gradient(closest-side, rgba(214, 173, 96, 0.1), transparent);
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 10%, transparent), transparent);
   pointer-events: none;
 }
 .hero.tone-bad::before {
-  background: radial-gradient(closest-side, rgba(236, 157, 163, 0.1), transparent);
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--danger) 10%, transparent), transparent);
 }
 .hero-orb {
   position: relative;
@@ -781,7 +781,7 @@ button.is-busy {
   border-radius: 50%;
   color: var(--good);
   background: var(--good-soft);
-  box-shadow: inset 0 0 0 1px rgba(143, 194, 169, 0.3);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--good) 30%, transparent);
 }
 .hero-orb .i {
   width: 24px;
@@ -790,7 +790,7 @@ button.is-busy {
 .tone-bad .hero-orb {
   color: var(--danger);
   background: var(--danger-soft);
-  box-shadow: inset 0 0 0 1px rgba(236, 157, 163, 0.3);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 30%, transparent);
 }
 .tone-pending .hero-orb {
   color: var(--accent-hi);
@@ -823,7 +823,7 @@ button.is-busy {
   padding: 6px;
   border-radius: 14px;
   background: var(--danger-soft);
-  border: 1px solid rgba(236, 157, 163, 0.18);
+  border: 1px solid color-mix(in srgb, var(--danger) 18%, transparent);
 }
 .attention-row {
   display: flex;
@@ -852,7 +852,7 @@ button.is-busy {
   height: 42px;
   margin-bottom: 18px;
   background: var(--accent-hover);
-  border-color: rgba(214, 173, 96, 0.2);
+  border-color: color-mix(in srgb, var(--accent) 20%, transparent);
   color: var(--accent-hi);
 }
 .notice-line:hover {
@@ -1095,8 +1095,8 @@ code.wrap {
   height: 40px;
   flex: none;
   border-radius: 11px;
-  background: linear-gradient(160deg, rgba(214, 173, 96, 0.2), rgba(140, 103, 52, 0.12));
-  box-shadow: inset 0 0 0 1px rgba(214, 173, 96, 0.22);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 20%, transparent), color-mix(in srgb, var(--accent-deep) 12%, transparent));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
   color: var(--accent-hi);
   font-weight: 600;
   font-size: 16px;
@@ -1127,14 +1127,14 @@ code.wrap {
 }
 .status.tone-good .status-dot {
   background: var(--good);
-  box-shadow: 0 0 0 3px rgba(143, 194, 169, 0.16);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 16%, transparent);
 }
 .status.tone-bad {
   color: var(--danger);
 }
 .status.tone-bad .status-dot {
   background: var(--danger);
-  box-shadow: 0 0 0 3px rgba(236, 157, 163, 0.16);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 16%, transparent);
 }
 .status.tone-pending {
   color: var(--accent-hi);
@@ -1559,7 +1559,7 @@ input[type="checkbox"] {
   padding: 12px;
   border-radius: 10px;
   background: var(--accent-hover);
-  border: 1px solid rgba(214, 173, 96, 0.2);
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
 }
 .manifest-input {
   display: grid;
@@ -1779,7 +1779,7 @@ dialog::backdrop {
   color: var(--good);
 }
 #toast[data-type="error"] {
-  border-color: rgba(236, 157, 163, 0.35);
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
 }
 #toast[data-type="error"] .i {
   color: var(--danger);
@@ -1888,7 +1888,7 @@ dialog::backdrop {
   justify-items: center;
   gap: 30px;
   padding: 32px 16px;
-  background: radial-gradient(ellipse 60% 40% at 50% 30%, rgba(214, 173, 96, 0.1), transparent 70%), var(--void);
+  background: radial-gradient(ellipse 60% 40% at 50% 30%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%), var(--void);
 }
 .auth-poster {
   display: grid;
@@ -1981,7 +1981,7 @@ dialog::backdrop {
   top: 0;
   transform: translateY(calc(-100% + 5px));
   background: rgba(9, 10, 12, 0.94);
-  box-shadow: 0 1px 0 rgba(214, 173, 96, 0.35);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--accent) 35%, transparent);
   transition:
     transform var(--motion-slow) var(--ease-out),
     box-shadow var(--motion-slow);
@@ -2000,7 +2000,7 @@ dialog::backdrop {
   height: 3px;
   margin-left: -22px;
   border-radius: 2px;
-  background: rgba(214, 173, 96, 0.55);
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
   transition: opacity var(--motion-fast);
 }
 .application-mode .masthead:hover::after,
