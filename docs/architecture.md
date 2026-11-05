@@ -2,7 +2,13 @@
 
 ## Scope and boundaries
 
-Nexus owns platform metadata, not module domain data. V1 proves a single owner can install and operate a separate container without editing Nexus. Domain entities must never be added merely to accommodate one module. Meridian could consume identity, event and routing contracts without Nexus knowing what a person is; richer persistence grants and UI hosting belong to subsequent protocol revisions.
+Nexus owns platform metadata, not module domain data. V1 supports a single owner
+operating separate module containers without domain-specific Nexus code. Opt-in
+`ui.application`, `storage.data` and blob capabilities already implement persistent
+full applications through the [application infrastructure extension](application-infrastructure.md).
+The [local Navigation History pilot](navigation-history.md) adds host-owned URL/history
+coordination while modules keep their route codecs and UX. It is default-off and
+does not establish a production rollout or move domain authority into Nexus.
 
 ## Repository map
 
@@ -14,10 +20,13 @@ Nexus owns platform metadata, not module domain data. V1 proves a single owner c
 | `backend/nexus/runtime.py` | Private broker client and runtime target naming |
 | `backend/broker/app.py` | Fixed-policy Docker operations |
 | `frontend/` | Static first-run, dashboard and management interface |
+| `frontend/router.js`, `frontend/navigation-protocol.js` | Shell/envelope routing and shared opt-in host/client navigation SDK |
+| `scripts/sync-navigation.mjs` | Build-time SDK copy/check for the Mnemosyne pilot; no runtime sibling dependency |
 | `protocol/` | Machine-readable, versioned module schema |
 | `examples/example-module/` | Independently running reference module |
 | `deploy/`, `compose.yaml` | Container builds and topology |
 | `tests/`, `scripts/docker_smoke.py` | Contract/security checks and real Docker integration |
+| `tests/navigation_pilot_runtime.py`, `tests/test_navigation_browser.py` | Opt-in real-app loopback browser test; process launcher replaces only the container broker |
 | `docs/adr/` | Significant decisions and tradeoffs |
 
 ## Control and data paths
@@ -29,6 +38,11 @@ Nexus process identity (UID 10001) controls the broker directory. This is a root
 Owner sessions terminate at Nexus. Module bearer tokens authenticate only `/api/v1/module/*`; these tokens do not grant owner access. Browser cookies and credentials are never forwarded to modules. Module HTML is returned under an opaque browser sandbox with no same-origin, network, form or top-navigation permissions.
 
 ## Persistence and migrations
+
+The navigation pilot also keeps owner/module-scoped draft checkpoints in the
+trusted parent's **tab-local browser sessionStorage**. These are private JSON,
+not encrypted storage, authoritative module records, SQLite migrations or backups.
+The module cannot directly read Nexus storage. See [draft/security boundaries](navigation-history.md#draft-recovery-and-security-boundaries).
 
 SQLite lives in `/data/nexus.sqlite3` with WAL, foreign keys and a busy timeout. `PRAGMA user_version` selects an ordered, append-only list of transactional migrations; newer databases fail closed on attempted downgrade. The deployment runs one Uvicorn worker. Lifecycle locking and rate limiting are process-local, deliberately incompatible with an unplanned multi-worker deployment.
 
@@ -51,6 +65,16 @@ Notifications retain 500 records; the UI returns the latest 100. Lifecycle failu
 V1 source ingestion is manual JSON. The source record is distinct from publisher and release metadata and runtime image identity. A future GitHub/OCI provider should resolve content to the same validated manifest plus independently verified provenance; it must not bypass review or add shell execution. No provider-specific identity is used as a module's primary key.
 
 ## UI and compatibility
+
+Shell views already use the History API. With `NEXUS_NAVIGATION_HISTORY=1`, enabled
+participating applications can also update the parent URL through a separate
+versioned message channel. `path` remains the iframe HTTP bootstrap path; additive
+`nav=1&route=...` describes internal module state. Same module/path/version/image
+retains the frame, traversal sends restore, and replacement retires its session.
+The parent takes an acknowledged leave checkpoint before SPA routing/replacement;
+legacy modules do not wait for an unsupported handshake. Per-load challenges and
+session/revision fences reject obsolete messages. Exact lifecycle, failure states,
+rollback and rollout limits are in [navigation history](navigation-history.md).
 
 Neutral surfaces use the supplied palette; gold marks identity and interaction emphasis. Roboto is bundled and served same-origin; no font/CDN service is contacted. Native controls, labeled forms, visible focus, semantic headings, live error messages and responsive layouts establish the shared foundation. See [design language](design-language.md).
 

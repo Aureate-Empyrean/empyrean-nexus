@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import secrets
+import shutil
 import sqlite3
 import threading
 import time
@@ -26,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from nexus import VERSION
 from nexus.db import Database
 from nexus.navigation import add_navigation_routes, trusted_origins
+from nexus.projections import add_projection_routes
 from nexus.protocol import ROOT, validate_manifest
 from nexus.recovery import add_recovery_routes
 from nexus.references import add_reference_routes, edge_json, event_visible
@@ -312,11 +314,13 @@ def create_app(data_dir=None, runtime=None, transport=None):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
-        response.headers["Cache-Control"] = "no-store"
+        # A route may set stricter values for its own content (module icons do); others get these.
+        response.headers.setdefault("Cache-Control", "no-store")
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         if not request.url.path.startswith("/modules/"):
-            response.headers["Content-Security-Policy"] = (
-                "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+            response.headers.setdefault(
+                "Content-Security-Policy",
+                "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
             )
         return response
 
@@ -421,7 +425,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
             ).fetchone()[0]
             count = conn.execute("SELECT COUNT(*) FROM modules").fetchone()[0]
             locale = conn.execute("SELECT value FROM settings WHERE key='locale'").fetchone()
-        disk = os.statvfs(data)
+        disk = shutil.disk_usage(data)
         return {
             "name": name,
             "version": VERSION,
@@ -429,10 +433,11 @@ def create_app(data_dir=None, runtime=None, transport=None):
             "modules": count,
             "database": "SQLite",
             "locale": locale[0] if locale else "en",
-            "data_free_bytes": disk.f_bavail * disk.f_frsize,
+            "data_free_bytes": disk.free,
             "update": {"status": "not_checked", "discovery_supported": False},
             "protocol": 1,
             "development": {"reference_module": allow_example},
+            "navigation": {"versions": [1]} if os.getenv("NEXUS_NAVIGATION_HISTORY") == "1" else {"versions": []},
         }
 
     @app.patch("/api/v1/settings")
@@ -607,6 +612,8 @@ def create_app(data_dir=None, runtime=None, transport=None):
                     conn.execute("DELETE FROM modules WHERE id=?", (module_id,))
                     # Navigation trust is a grant to this installation of the module, not data.
                     conn.execute("DELETE FROM module_external_origins WHERE module=?", (module_id,))
+                    # The cached icon belongs to this installation too; disabling keeps it.
+                    app.state.icons.forget(module_id)
                 else:
                     conn.execute(
                         "UPDATE modules SET state=?,token=?,resolver_key=? WHERE id=?",
@@ -744,6 +751,10 @@ def create_app(data_dir=None, runtime=None, transport=None):
     from nexus.blobs import add_blob_routes
 
     add_blob_routes(app, db, data, require_module, capability)
+
+    from nexus.icons import add_icon_routes
+
+    add_icon_routes(app, data, get_module, upstream, require_owner)
 
     @app.get("/api/v1/module/context")
     def module_context(module=Depends(require_module)):
@@ -892,6 +903,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
         )
 
     add_reference_routes(app, db, require_module, require_owner, runtime, transport)
+    add_projection_routes(app, db, require_module, runtime, transport)
     add_navigation_routes(app, db, require_owner, audit)
     ctx = SimpleNamespace(
         db=db,

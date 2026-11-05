@@ -17,6 +17,22 @@ Visit http://localhost:12333, supply the claim token, choose an installation nam
 
 After the initial build, `docker compose up -d` is sufficient. There are no mandatory external services. Dependencies/base images must be available for building; remote module images require access from the Docker daemon when first enabled. Module containers themselves do not receive external network access.
 
+## Navigation History: local activation only
+
+The current working tree includes a Nexus + Mnemosyne pilot behind
+`NEXUS_NAVIGATION_HISTORY=1`; default is off. It has not been deployed by the
+navigation work or this documentation update. It requires the actual server
+process environment, the matching Nexus frontend/backend and a module adapter.
+It is not a database setting or a module manifest permission.
+
+The supplied `compose.yaml` does **not** forward this variable and `.env.example`
+does not declare it. A host-shell or `.env` assignment alone will not activate the
+feature inside a container. Any local Compose override, rebuild/recreation and
+activation must be separately reviewed/applied; nothing here changes production
+configuration. See [activation and rollback](navigation-history.md#activation-and-rollback)
+for native use and the override shape, and [validation gates](navigation-history.md#validation-and-remaining-gates)
+before considering production rollout. Save/recover drafts before disabling it.
+
 ## Reference module
 
 ```sh

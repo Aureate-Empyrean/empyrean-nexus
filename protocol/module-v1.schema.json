@@ -166,11 +166,13 @@
           "storage.data",
           "blobs.read",
           "blobs.write",
-          "ui.application"
+          "ui.application",
+          "network.egress",
+          "projections.read"
         ]
       },
       "uniqueItems": true,
-      "maxItems": 10
+      "maxItems": 16
     },
     "routes": {
       "type": "object",
@@ -200,6 +202,13 @@
         "api",
         "health"
       ]
+    },
+    "icon": {
+      "type": "string",
+      "minLength": 6,
+      "maxLength": 100,
+      "pattern": "^/[a-zA-Z0-9_-]+(/[a-zA-Z0-9_-]+)*\\.(svg|png|webp)$",
+      "description": "Application icon (Nexus >=0.1.8): a path the module serves itself, fetched by Nexus through the owner-authenticated module gateway and shown as an image in the application switcher and module list. A square tile, full-bleed; Nexus applies the corner radius. SVG, PNG or WebP."
     },
     "events": {
       "type": "object",
@@ -355,6 +364,56 @@
         }
       },
       "description": "The module implements the backup/restore contract (Nexus >=0.1.3). Requires storage.data."
+    },
+    "projections": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "provides",
+        "read"
+      ],
+      "description": "Projection queries (Nexus >=0.1.5): projection contracts this module serves at POST /empyrean/v1/projections/<name>, and exact module/projection scopes it may query.",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "provides": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+            "maxLength": 48
+          }
+        },
+        "read": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "module",
+              "projection"
+            ],
+            "properties": {
+              "module": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+                "maxLength": 48
+              },
+              "projection": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+                "maxLength": 48
+              }
+            }
+          }
+        }
+      }
     }
   },
   "required": [

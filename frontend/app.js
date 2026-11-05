@@ -121,10 +121,22 @@ function status(module) {
 }
 const isApplication = m => m.manifest.capabilities.includes('ui.application');
 const canOpen = m => m.state === 'enabled';
+/** A module's own icon when its manifest declares one; otherwise a neutral letter tile. Nexus
+ * serves its validated copy of the icon (owner only, same origin), so the icon stays while the
+ * module is stopped, and no external image source is ever loaded. */
 function monogram(m, size = '') {
   const letter = [...(m.manifest.name || m.id).trim()][0]?.toUpperCase() || '?';
+  if (m.manifest.icon) {
+    const src = `/api/v1/modules/${encodeURIComponent(m.id)}/icon?v=${encodeURIComponent(m.manifest.version)}`;
+    return `<span class="monogram has-icon ${size}" aria-hidden="true" data-letter="${esc(letter)}"><img src="${esc(src)}" alt="" decoding="async" draggable="false"></span>`;
+  }
   return `<span class="monogram ${size}" aria-hidden="true">${esc(letter)}</span>`;
 }
+// No valid icon has been obtained yet (or it fails to decode): the letter tile.
+document.addEventListener('error', event => {
+  const tile = event.target?.tagName === 'IMG' && event.target.closest('.monogram.has-icon');
+  if (tile) { tile.classList.remove('has-icon'); tile.textContent = tile.dataset.letter; }
+}, true);
 function statusPill(m) {
   const s = status(m);
   return `<span class="status tone-${s.tone}"><span class="status-dot"></span>${esc(s.label)}</span>`;
@@ -140,6 +152,8 @@ const CAPABILITIES = {
   'references.create': ['link', 'Links its items to other items', 'Relationships stay private to this module unless it shares them explicitly.'],
   'references.read': ['link', 'Sees relationships shared with it', 'Only links it created or that were explicitly shared with it.'],
   'references.resolve': ['key', 'Looks up item titles in other modules', 'Only within the scopes below, and only what the owning module agrees to reveal.'],
+  'network.egress': ['globe', 'Connects to the Internet', 'Its server can reach any external address. Nexus does not limit which sites; the module is responsible for what it contacts.'],
+  'projections.read': ['link', 'Reads information other modules share', 'Only the projections listed below, and only what the owning module agrees to share.'],
 };
 function capabilityRows(list, { tone = '' } = {}) {
   if (!list.length) return '<p class="quiet-text">No permissions requested.</p>';
@@ -148,19 +162,57 @@ function capabilityRows(list, { tone = '' } = {}) {
     return `<li class="permission ${tone}">${icon(glyph)}<div><strong>${esc(title)}</strong><span>${esc(text)}</span><code>${esc(code)}</code></div></li>`;
   }).join('')}</ul>`;
 }
+function projectionRows(manifest) {
+  const p = manifest.projections;
+  if (!p || !(p.provides?.length || p.read?.length)) return '';
+  return `<dl class="facts tight">${p.provides?.length ? `<div><dt>Shares with modules you allow</dt><dd>${p.provides.map(esc).join(', ')}</dd></div>` : ''}${p.read?.length ? `<div><dt>Can read shared information</dt><dd>${p.read.map(s => `${esc(s.projection)} from ${esc(s.module)}`).join(', ')}</dd></div>` : ''}</dl><p class="quiet-text">The owning module decides what it shares. Nexus forwards requests and keeps nothing.</p>`;
+}
 function scopeText(scope) {
   return `${esc(moduleName(scope.module))} <span class="quiet-text">· ${esc(scope.type)}</span>`;
 }
 
 /* ─────────────── Router, feedback, dialogs, popovers ─────────────── */
 
-const router = createRouter(route => {
+const navigationEnabled = () => system?.navigation?.versions?.includes(1);
+function navigationReport(message) {
+  let banner = document.querySelector('#navigation-status');
+  if (!message) { banner?.remove(); return; }
+  if (!banner) {
+    banner = document.createElement('p'); banner.id = 'navigation-status';
+    banner.setAttribute('role', 'alert');
+    document.querySelector('#content')?.before(banner);
+  }
+  banner.textContent = message;
+}
+const navigation = globalThis.EmpyreanNavigation.createHost({
+  active: id => navigationEnabled() && !!username && view.name === 'module' && view.id === id &&
+    modules.some(m => m.id === id && m.state === 'enabled' && isApplication(m)),
+  current: () => view,
+  commit: route => { view = {...view, navigationRoute:route}; },
+  report: navigationReport,
+  owner: () => username,
+});
+window.addEventListener('message', event => navigation.receive(event));
+window.addEventListener('pageshow', event => { if (event.persisted && username) void refresh().then(() => navigation.restore('resume')); });
+let navigationRequest = 0;
+const router = createRouter(async (route, {cause} = {}) => {
+  const request = ++navigationRequest;
+  if (navigationEnabled()) {
+    try { await navigation.prepareLeave(); }
+    catch (error) { navigation.restore('resume'); navigationReport(error.message); return; }
+    if (request !== navigationRequest) return;
+  }
   const previous = view;
   view = route;
   closePopovers();
   if (drawerId && route.name !== 'modules') closeDrawer(false);
   if (dialog.open) { dialogEpoch++; dialog.close(); }
-  if (username && system) renderView({ transition: true, focus: true, from: previous });
+  if (username && system) {
+    if (navigationEnabled() && previous.name === 'module' && route.name === 'module' &&
+        previous.id === route.id && previous.modulePath === route.modulePath && document.querySelector('#module-application')) {
+      navigation.restore(cause);
+    } else renderView({ transition: true, focus: true, from: previous });
+  }
 });
 
 function toast(message, type = 'success') {
@@ -321,6 +373,7 @@ function skeleton() {
 /* ─────────────── Sign-in and first run ─────────────── */
 
 function auth(setup) {
+  navigation.reset();
   renderEpoch++;
   document.body.classList.remove('application-mode');
   app.innerHTML = `<main class="auth-screen"><div class="auth-poster">${MARK}<div class="display poster">EMPYREAN NEXUS</div><div class="display poster-sub">AUREATE EMPYREAN</div></div><section class="auth-box"><h1>${setup ? 'Set up this installation' : 'Welcome back'}</h1><p class="auth-lede">${setup ? 'Claim this Nexus and create the administrator account. Nothing leaves this server.' : 'Sign in to your control center.'}</p><form id="auth-form">${setup ? '<label for="installation">Installation name</label><input id="installation" name="installation" value="My Nexus" maxlength="80" required><label for="claim">Installation claim token</label><input id="claim" name="claim" type="password" autocomplete="off" required><p class="help">Read it on the server, from any directory: <code>docker compose -p nexus exec nexus cat /data/setup-token</code>. Use your <code>NEXUS_INSTALLATION</code> name instead of <code>-p nexus</code> if you changed it.</p>' : ''}<label for="username">Username</label><input id="username" name="username" autocomplete="username" pattern="[a-zA-Z0-9_.\\-]+" maxlength="80" required><label for="password">Password</label><input id="password" name="password" type="password" minlength="12" maxlength="128" autocomplete="${setup ? 'new-password' : 'current-password'}" required>${setup ? '<p class="help">At least 12 characters. This creates the local administrator account.</p>' : ''}<p class="error-text" role="alert" id="auth-error"></p><button class="primary" type="submit">${setup ? 'Create administrator' : 'Sign in'}</button></form></section></main>`;
@@ -353,6 +406,13 @@ async function refresh({ initial = false, changed = null } = {}) {
   const epoch = ++refreshEpoch;
   const data = await Promise.all([api('/system'), api('/modules'), api('/notifications')]);
   if (epoch !== refreshEpoch || !username) return;
+  const before = modules.find(m => m.id === view.id), after = data[1].find(m => m.id === view.id);
+  if (navigationEnabled() && before?.state === 'enabled' && isApplication(before) &&
+      (after?.state !== 'enabled' || !isApplication(after) ||
+       before.manifest.version !== after.manifest.version || before.manifest.container?.image !== after.manifest.container?.image)) {
+    await navigation.prepareLeave();
+    if (epoch !== refreshEpoch || !username) return;
+  }
   const added = data[1].filter(m => !modules.some(old => old.id === m.id)).map(m => m.id);
   [system, modules, notices] = data;
   if (!document.querySelector('.shell')) shell();
@@ -383,7 +443,20 @@ function shell() {
   document.querySelector('#account').onclick = event => togglePopover(document.querySelector('#account-menu'), event.currentTarget);
   document.querySelector('#version-button').onclick = () => { closePopovers(); releaseDialog(); };
   document.querySelector('#logout').onclick = async () => {
-    try { await api('/auth/logout', { method: 'POST' }); username = ''; csrf = ''; system = null; refreshEpoch++; closePopovers(); auth(false); }
+    const finish = async () => {
+      await api('/auth/logout', { method: 'POST' }); navigation.clearDrafts(); navigation.reset();
+      username = ''; csrf = ''; system = null; refreshEpoch++; closePopovers(); auth(false);
+    };
+    try {
+      await navigation.prepareLeave();
+      if (navigation.hasDrafts()) {
+        navigation.restore('resume');
+        modal('Sign out with unsaved drafts?', '<p>Some application drafts are retained only in this tab. Signing out clears those recovery copies. Cancel to save or recover them first.</p><div class="dialog-actions" id="draft-signout-actions"></div>');
+        document.querySelector('#draft-signout-actions').append(
+          action('Cancel', closeDialog, 'quiet'),
+          action('Sign out and clear tab drafts', async () => { await finish(); closeDialog(); }, 'danger'));
+      } else await finish();
+    }
     catch (error) { toast(error.message, 'error'); }
   };
 }
@@ -413,7 +486,7 @@ function renderSwitcher() {
   const items = document.querySelector('#launcher-items');
   const current = view.name === 'module' ? view.id : 'nexus';
   const apps = modules.filter(m => m.state === 'enabled');
-  items.innerHTML = `<a data-route href="${routes.overview}" class="launcher-item${current === 'nexus' ? ' current' : ''}"><span class="launcher-glyph nexus">${MARK}</span><span class="launcher-text"><strong>Nexus</strong><small>Control center</small></span>${current === 'nexus' ? icon('check', 'tick') : ''}</a>${apps.map(m => `<a data-route class="launcher-item${current === m.id ? ' current' : ''}" href="/app/modules/${m.id}">${monogram(m)}<span class="launcher-text"><strong>${esc(m.manifest.name)}</strong><small>${esc(status(m).label)} · v${esc(m.manifest.version)}</small></span>${current === m.id ? icon('check', 'tick') : ''}</a>`).join('')}<a data-route class="launcher-manage" href="${routes.modules}">${icon('modules')}<span>Manage modules</span>${icon('chevronRight', 'end')}</a>`;
+  items.innerHTML = `<a data-route href="${routes.overview}" class="launcher-item${current === 'nexus' ? ' current' : ''}"><span class="launcher-glyph nexus" aria-hidden="true">${MARK}</span><span class="launcher-text"><strong>Nexus</strong><small>Control center</small></span>${current === 'nexus' ? icon('check', 'tick') : ''}</a>${apps.map(m => `<a data-route class="launcher-item${current === m.id ? ' current' : ''}" href="/app/modules/${m.id}">${monogram(m)}<span class="launcher-text"><strong>${esc(m.manifest.name)}</strong><small>${esc(status(m).label)} · v${esc(m.manifest.version)}</small></span>${current === m.id ? icon('check', 'tick') : ''}</a>`).join('')}<a data-route class="launcher-manage" href="${routes.modules}"><span class="launcher-slot" aria-hidden="true">${icon('modules')}</span><span>Manage modules</span>${icon('chevronRight', 'end')}</a>`;
 }
 function notificationItems(items) {
   return items.length ? items.map(n => `<article class="notification ${n.read ? '' : 'unread'}">${icon(n.source === 'nexus' ? 'spark' : 'message', 'notice-glyph')}<div><p>${esc(n.message)}</p><div class="notification-meta"><span>${esc(n.source === 'nexus' ? 'Nexus' : moduleName(n.source))}</span><span aria-hidden="true">·</span><time datetime="${esc(n.created_at)}" title="${esc(date(n.created_at))}">${esc(relative(n.created_at))}</time>${!n.read ? '<span class="unread-label">Unread</span>' : ''}</div></div></article>`).join('')
@@ -442,6 +515,7 @@ async function renderView({ transition = false, focus = false, changed = null, a
   if (!content) return;
   const module = view.name === 'module' ? modules.find(m => m.id === view.id) : null;
   const appMode = !!(module?.state === 'enabled' && isApplication(module));
+  if (!appMode) navigation.reset();
   document.body.classList.toggle('application-mode', appMode);
   const navName = view.name === 'notifications' ? '' : view.name === 'module' ? '' : view.name;
   document.querySelectorAll('[data-nav]').forEach(link => {
@@ -652,7 +726,7 @@ function renderDrawer() {
     <div class="drawer-actions" id="drawer-actions"></div>
     <section class="d-section"><h3>What it may do</h3>${capabilityRows(manifest.capabilities)}</section>
     ${(events.produces.length || events.consumes.length) ? `<section class="d-section"><h3>Events</h3><dl class="facts tight">${events.produces.length ? `<div><dt>Announces</dt><dd>${events.produces.map(e => `<code>${esc(e)}</code>`).join(' ')}</dd></div>` : ''}${events.consumes.length ? `<div><dt>Listens for</dt><dd>${events.consumes.map(e => `<code>${esc(e)}</code>`).join(' ')}</dd></div>` : ''}</dl></section>` : ''}
-    ${refs && (refs.read?.length || refs.resolve?.length || (manifest.resources || []).length) ? `<section class="d-section"><h3>Links with other modules</h3><dl class="facts tight">${(manifest.resources || []).length ? `<div><dt>Items others can link to</dt><dd>${manifest.resources.map(r => `${esc(r.type)}${r.resolvable ? '' : ' <span class="quiet-text">(not resolvable)</span>'}`).join(', ')}</dd></div>` : ''}${refs.read?.length ? `<div><dt>Can see shared links about</dt><dd>${refs.read.map(scopeText).join(', ')}</dd></div>` : ''}${refs.resolve?.length ? `<div><dt>Can look up titles of</dt><dd>${refs.resolve.map(scopeText).join(', ')}</dd></div>` : ''}</dl><p class="quiet-text">Seeing a link never reveals the linked item's contents.</p></section>` : ''}
+    ${refs && (refs.read?.length || refs.resolve?.length || (manifest.resources || []).length) ? `<section class="d-section"><h3>Links with other modules</h3><dl class="facts tight">${(manifest.resources || []).length ? `<div><dt>Items others can link to</dt><dd>${manifest.resources.map(r => `${esc(r.type)}${r.resolvable ? '' : ' <span class="quiet-text">(not resolvable)</span>'}`).join(', ')}</dd></div>` : ''}${refs.read?.length ? `<div><dt>Can see shared links about</dt><dd>${refs.read.map(scopeText).join(', ')}</dd></div>` : ''}${refs.resolve?.length ? `<div><dt>Can look up titles of</dt><dd>${refs.resolve.map(scopeText).join(', ')}</dd></div>` : ''}</dl><p class="quiet-text">Seeing a link never reveals the linked item's contents.</p></section>` : ''}${projectionRows(manifest) ? `<section class="d-section"><h3>Shared information</h3>${projectionRows(manifest)}</section>` : ''}
     <section class="d-section"><h3>Data</h3><p class="d-text">${persistent ? 'Keeps its data in a private volume on this server. Stopping, updating or uninstalling the module keeps that data.' : 'Declares no persistent storage. Anything it holds is gone when it stops.'}</p></section>
     ${features.trust ? `<section class="d-section"><h3>Trusted sites</h3>${(m.external_origins || []).length ? `<ul class="trusted-origins" id="trusted-origins"></ul>` : '<p class="quiet-text">None. When this module wants to open an external site, Nexus asks you first.</p>'}</section>` : ''}
     ${features.recovery ? `<section class="d-section" id="update-section"><h3>Updates</h3><p class="d-text">Nexus doesn't discover module releases. To update, review the new version's manifest; nothing changes until you approve it.</p><div class="d-actions" id="update-actions"></div><div id="update-history"></div></section>` : ''}
@@ -774,7 +848,7 @@ function installDialog() {
       const review = await api('/modules/validate', { method: 'POST', body: JSON.stringify(manifest) });
       if (context !== dialogEpoch || text.value !== reviewedText) return;
       const retained = review.retained_references || review.retained_data;
-      result.innerHTML = `<div class="review">${reviewIdentity(manifest, '<span class="tag warn">Community · unreviewed</span>')}<p class="warning-text">${icon('shield')}${esc(review.warning)}</p><h4>It asks permission to</h4>${capabilityRows(review.capabilities)}${manifest.references ? `<h4>Links with other modules</h4><dl class="facts tight">${manifest.references.read?.length ? `<div><dt>Can see shared links about</dt><dd>${manifest.references.read.map(scopeText).join(', ')}</dd></div>` : ''}${manifest.references.resolve?.length ? `<div><dt>Can look up titles of</dt><dd>${manifest.references.resolve.map(scopeText).join(', ')}</dd></div>` : ''}${(manifest.resources || []).length ? `<div><dt>Items others can link to</dt><dd>${manifest.resources.map(r => esc(r.type)).join(', ')}</dd></div>` : ''}</dl><p class="quiet-text">Read scopes never reveal private relationships. Looking up a title shows only what the owning module agrees to share.</p>` : ''}<details class="technical"><summary>${icon('chevronRight', 'disclosure')}Technical details</summary><div class="details-body"><dl class="facts tight"><div><dt>Identifier</dt><dd><code>${esc(manifest.id)}</code></dd></div><div><dt>Image</dt><dd><code class="wrap">${esc(manifest.container.image)}</code></dd></div><div><dt>Internal port</dt><dd>${esc(manifest.container.port)}</dd></div><div><dt>Requires Nexus</dt><dd><code>${esc(manifest.nexus)}</code></dd></div></dl>${manifest.references ? `<pre>${esc(JSON.stringify(manifest.references, null, 2))}</pre>` : ''}</div></details>${retained ? `<div class="drawer-note tone-pending"><strong>This identity was used before.</strong> ${plural(review.retained_references || 0, 'retained reference', 'retained references')}${review.retained_data ? ' and persistent data' : ''} belong to <code>${esc(manifest.id)}</code>.<label class="check-line"><input type="checkbox" id="reuse-identity"> Restore this identity with the same resource IDs. A different dataset could misdirect existing references.</label></div>` : ''}<label class="check-line consent"><input type="checkbox" id="consent"> Grant the permissions and scopes shown above.</label><div id="confirm-install" class="dialog-actions"></div></div>`;
+      result.innerHTML = `<div class="review">${reviewIdentity(manifest, '<span class="tag warn">Community · unreviewed</span>')}<p class="warning-text">${icon('shield')}${esc(review.warning)}</p><h4>It asks permission to</h4>${capabilityRows(review.capabilities)}${manifest.references ? `<h4>Links with other modules</h4><dl class="facts tight">${manifest.references.read?.length ? `<div><dt>Can see shared links about</dt><dd>${manifest.references.read.map(scopeText).join(', ')}</dd></div>` : ''}${manifest.references.resolve?.length ? `<div><dt>Can look up titles of</dt><dd>${manifest.references.resolve.map(scopeText).join(', ')}</dd></div>` : ''}${(manifest.resources || []).length ? `<div><dt>Items others can link to</dt><dd>${manifest.resources.map(r => esc(r.type)).join(', ')}</dd></div>` : ''}</dl><p class="quiet-text">Read scopes never reveal private relationships. Looking up a title shows only what the owning module agrees to share.</p>` : ''}${projectionRows(manifest) ? `<h4>Shared information</h4>${projectionRows(manifest)}` : ''}<details class="technical"><summary>${icon('chevronRight', 'disclosure')}Technical details</summary><div class="details-body"><dl class="facts tight"><div><dt>Identifier</dt><dd><code>${esc(manifest.id)}</code></dd></div><div><dt>Image</dt><dd><code class="wrap">${esc(manifest.container.image)}</code></dd></div><div><dt>Internal port</dt><dd>${esc(manifest.container.port)}</dd></div><div><dt>Requires Nexus</dt><dd><code>${esc(manifest.nexus)}</code></dd></div></dl>${manifest.references ? `<pre>${esc(JSON.stringify(manifest.references, null, 2))}</pre>` : ''}</div></details>${retained ? `<div class="drawer-note tone-pending"><strong>This identity was used before.</strong> ${plural(review.retained_references || 0, 'retained reference', 'retained references')}${review.retained_data ? ' and persistent data' : ''} belong to <code>${esc(manifest.id)}</code>.<label class="check-line"><input type="checkbox" id="reuse-identity"> Restore this identity with the same resource IDs. A different dataset could misdirect existing references.</label></div>` : ''}<label class="check-line consent"><input type="checkbox" id="consent"> Grant the permissions and scopes shown above.</label><div id="confirm-install" class="dialog-actions"></div></div>`;
       result.querySelector('#confirm-install').append(action('Install (stays stopped)', async () => {
         if (!dialog.querySelector('#consent').checked) throw new Error('Review and grant the requested capabilities first.');
         if ((review.retained_references || review.retained_data) && !dialog.querySelector('#reuse-identity').checked) throw new Error('Confirm that you are restoring the same resource identity.');
@@ -813,7 +887,7 @@ function updateDialog(m) {
       result.innerHTML = `<div class="review"><div class="version-change"><span>v${esc(diff.from_version)}</span>${icon('arrow')}<strong>v${esc(diff.to_version)}</strong>${direction}</div>
         ${added.length ? `<h4 class="attention-heading">${icon('shield')}New permissions it asks for</h4>${capabilityRows(added, { tone: 'added' })}` : '<p class="good-text">No new permissions.</p>'}
         ${removed.length ? `<h4>Permissions it gives up</h4>${capabilityRows(removed, { tone: 'removed' })}` : ''}
-        <dl class="facts diff">${diffList('Links it can see', diff.reference_scopes.read)}${diffList('Titles it can look up', diff.reference_scopes.resolve)}${diffList('Item types', diff.resources)}${diffList('Events announced', diff.events.produces)}${diffList('Events listened for', diff.events.consumes)}<div class="diff-row"><dt>Container image</dt><dd>${diff.image_changed ? 'Changes' : 'Unchanged'}</dd></div>${diff.port.from !== diff.port.to ? `<div class="diff-row"><dt>Internal port</dt><dd>${esc(diff.port.from)} → ${esc(diff.port.to)}</dd></div>` : ''}${diff.nexus_range.from !== diff.nexus_range.to ? `<div class="diff-row"><dt>Requires Nexus</dt><dd><code>${esc(diff.nexus_range.from)}</code> → <code>${esc(diff.nexus_range.to)}</code></dd></div>` : ''}<div class="diff-row"><dt>Data</dt><dd>${esc(diff.persistent_data === 'none' ? 'No persistent data' : 'Existing data is kept' + (diff.persistent_data.includes('no longer') ? ', but the new version no longer mounts it' : ''))}</dd></div><div class="diff-row"><dt>Migrations</dt><dd>${esc(diff.migrations)}</dd></div><div class="diff-row"><dt>Restart</dt><dd>${m.state === 'disabled' ? 'Stays stopped; health is checked when you start it.' : 'The module restarts and must pass a health check. No automatic rollback.'}</dd></div></dl>
+        <dl class="facts diff">${diffList('Links it can see', diff.reference_scopes.read)}${diffList('Titles it can look up', diff.reference_scopes.resolve)}${diffList('Item types', diff.resources)}${diff.projections ? diffList('Information it shares', diff.projections.provides) + diffList('Information it reads', diff.projections.read) : ''}${diffList('Events announced', diff.events.produces)}${diffList('Events listened for', diff.events.consumes)}<div class="diff-row"><dt>Container image</dt><dd>${diff.image_changed ? 'Changes' : 'Unchanged'}</dd></div>${diff.port.from !== diff.port.to ? `<div class="diff-row"><dt>Internal port</dt><dd>${esc(diff.port.from)} → ${esc(diff.port.to)}</dd></div>` : ''}${diff.nexus_range.from !== diff.nexus_range.to ? `<div class="diff-row"><dt>Requires Nexus</dt><dd><code>${esc(diff.nexus_range.from)}</code> → <code>${esc(diff.nexus_range.to)}</code></dd></div>` : ''}<div class="diff-row"><dt>Data</dt><dd>${esc(diff.persistent_data === 'none' ? 'No persistent data' : 'Existing data is kept' + (diff.persistent_data.includes('no longer') ? ', but the new version no longer mounts it' : ''))}</dd></div><div class="diff-row"><dt>Migrations</dt><dd>${esc(diff.migrations)}</dd></div><div class="diff-row"><dt>Restart</dt><dd>${m.state === 'disabled' ? 'Stays stopped; health is checked when you start it.' : 'The module restarts and must pass a health check. No automatic rollback.'}</dd></div></dl>
         <p class="quiet-text">${esc(backupText || '')}</p>
         ${diff.backup === 'recommended' ? '<label class="check-line"><input type="checkbox" id="backup-before" checked> Back up before updating (the update stops if the backup fails)</label>' : ''}
         ${added.length ? '<label class="check-line consent"><input type="checkbox" id="grant-new"> Grant the new permissions listed above</label>' : ''}
@@ -844,7 +918,7 @@ function uninstallDialog(module) {
   modal(`Uninstall ${module.manifest.name}?`, `<p>This stops and removes the module's container and network, revokes its credentials and releases port ${esc(module.port)}.</p><p class="d-text">${data}</p><p class="quiet-text">Nexus activity history, shared files and resource references are retained; references may become unresolved.</p><div class="dialog-actions" id="remove-actions"></div>`);
   const context = dialogEpoch;
   dialog.querySelector('#remove-actions').append(action('Cancel', closeDialog, 'quiet'), action('Uninstall', async () => {
-    await api('/modules/' + module.id, { method: 'DELETE' }); if (context === dialogEpoch) closeDialog();
+    await api('/modules/' + module.id, { method: 'DELETE' }); navigation.clearModuleDrafts(module.id); if (context === dialogEpoch) closeDialog();
     if (drawerId === module.id) closeDrawer(false);
     const row = document.querySelector(`.module-row[data-module-id="${CSS.escape(module.id)}"]`);
     if (row) await collapse(row);
@@ -866,7 +940,14 @@ function renderModuleView(content, module) {
   }
   const path = view.modulePath || '/';
   if (isApplication(module)) {
+    const existing = content.querySelector('#module-application');
+    const frameKey = [module.id, path, module.manifest.version, module.manifest.container?.image || ''].join(':');
+    if (navigationEnabled() && existing?.dataset.navigationKey === frameKey) return;
+    navigation.reset();
     content.innerHTML = `<iframe id="module-application" title="${esc(module.manifest.name)}" sandbox="allow-scripts allow-downloads" src="/modules/${module.id}${esc(path)}"></iframe>`;
+    const frame = content.querySelector('#module-application');
+    frame.dataset.navigationKey = frameKey;
+    if (navigationEnabled()) navigation.bind(frame, module.id);
     return;
   }
   content.innerHTML = heading(module.manifest.name, `<a data-route class="button-link" href="${routes.modules}">Manage modules</a>`, `${statusPill(module)} <span class="quiet-text">v${esc(module.manifest.version)} · sandboxed module view</span>`) + `<section class="module-frame"><iframe title="${esc(module.manifest.name)}" sandbox="allow-scripts" src="/modules/${module.id}${esc(path)}"></iframe></section><details class="api-explorer"><summary>${icon('chevronRight', 'disclosure')}Module API explorer</summary><div class="details-body"><label for="module-api-path">Path relative to <code>${esc(module.manifest.routes.api)}</code></label><div class="explorer-line"><input id="module-api-path" value="/info" maxlength="100"><div class="dialog-actions inline" id="module-api-actions"></div></div><pre id="module-api-result" aria-live="polite"></pre></div></details>`;
@@ -1081,7 +1162,7 @@ window.addEventListener('message', async event => {
   if (!module || module.state !== 'enabled' || !module.manifest.capabilities.includes('ui.application')) return;
   const reply = (result, error) => { if (frame.isConnected) event.source.postMessage({channel:'empyrean-v1', id:message.id, result, error}, '*'); };
   try {
-    if (message.action === 'context') return reply({applications:modules.filter(m=>m.state==='enabled').map(m=>({id:m.id,name:m.manifest.name})),locale:system.locale || navigator.language});
+    if (message.action === 'context') return reply({applications:modules.filter(m=>m.state==='enabled').map(m=>({id:m.id,name:m.manifest.name})),locale:system.locale || navigator.language,navigation:system.navigation || {versions:[]}});
     if (message.action === 'navigate') {
       const target=message.module;
       if (target !== 'nexus' && !modules.some(m=>m.id===target && m.state==='enabled')) throw Error('Unknown application');

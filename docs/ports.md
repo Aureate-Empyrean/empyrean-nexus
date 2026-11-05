@@ -6,7 +6,12 @@ Aureate Empyrean reserves TCP ports of the form `x333`, beginning with 12333 and
 | --- | --- |
 | 12333 | Nexus gateway/API; only normal host-published port |
 | 13333 | Reference module in its supplied manifest |
-| 14333–65333, step 1000 | Available module slots |
+| 14333 | Mnemosyne |
+| 15333 | Chronos |
+| 16333 | Lyra |
+| 17333 | Meridian |
+| 18333 | Argus |
+| 19333–65333, step 1000 | Available module slots |
 
 `protocol/module-v1.schema.json` is the machine-readable allowed module range; `backend/nexus/protocol.py` exposes the same range for tooling. The SQLite `modules.port UNIQUE` constraint is the installation registry. A second registration cannot reserve the same port, even while disabled. The reservation is freed only after successful uninstall. A module may not claim 12333 or any arbitrary port.
 

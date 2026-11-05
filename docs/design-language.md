@@ -25,6 +25,22 @@ Each product has one accent family on the shared neutrals, used for identity and
 
 Resource colors chosen by users are separate from product accents. Status colours (healthy green, attention red, warning amber) are separate from the accent too.
 
+## Composition (design system 2.1)
+
+Since Nexus 0.1.6 and Mnemosyne 1.2.1 both products carry the token set 2.1 materials (architecture ADR 0012, ADR 0014) as a composition layer at the end of their stylesheet. The local components, markup and workflows stay; their appearance is superseded. Nexus 0.1.7 and Mnemosyne 1.2.2 refine it against "bubble UI":
+
+- **Two materials only.** *Structure* for ordinary content: a quiet, nearly opaque panel with hairline rows, no blur and no float shadow. *Lens* for what navigates or floats (command bar, rail, toolbar, menus, the application switcher, drawer, dialogs, toasts): a specular sheen from the top left, edge light (inset highlights, bottom shade, a hairline outer separation), a deep blur with reduced brightness, and a tint dark enough that text behind it dissolves into colour. Small floating layers add a masked specular rim; layers that scroll use edge light instead, because a masked ring would scroll with the content.
+- **No cards inside surfaces.** A panel holds rows separated by hairlines, not a card per row. Status is a lit dot and a word, versions are plain metadata, and pills are kept for counts and tags.
+- **One radius scale.** Controls 9 px, groups 12 px, panels 16 px, floating glass 18 px.
+- **Application tiles (0.1.8).** Each module owns its icon (manifest `icon`, served by the module); Nexus draws every tile at one size per context (32 px in the switcher, 38 px in lists, 48 px in the drawer) with the same radius and edge light, and a neutral letter tile when there is no icon. The Nexus gold mark is Nexus's own.
+- **Backdrop roots.** An element with `backdrop-filter` (or `filter`, `opacity` below 1, `mask`) becomes the backdrop root of everything inside it, and a descendant's blur then sees only that element. Floating glass must never sit inside another glass element: the command bar keeps its glass on `::before`, so the switcher and menus inside it blur the page or module behind them. A masked rim on the bar itself produced compositing seams around its controls, so the bar's rim is edge light.
+
+- **Nexus — command center.** Restrained golden illumination from above with a cool counter-light and faint orbit rings; a floating lens command bar whose navigation is words with one gold light under the current place; the overview status (state orb, headline, one line of facts) reads straight off the atmosphere; modules and recent activity share one structural panel divided by a hairline; platform facts are columns divided by hairlines; the Modules page is one panel with a row per module. Drawer, dialogs, menus, the application switcher, notifications and toasts float as lens glass. Full-window applications hide the atmosphere so the module owns the window.
+- **Mnemosyne — lamplight.** A dim violet dusk with one warm amber lamp. The sidebar and toolbar float as glass; the work sits on an elevated, nearly opaque sheet, so long-form reading and writing get no blur, glow or gradient behind the text. Inside the sheet nothing is glass: task lists, recent items and board columns are quiet hairline groups, project headers are open, and the formatting bar is icons above a hairline. Glass is reserved for navigation and floating layers.
+- Glass becomes solid without `backdrop-filter` support and under `prefers-reduced-transparency: reduce`. Text never sits on glass lighter than `--surface-glass`.
+
+Before/after screenshots: Nexus `docs/screenshots/`, Mnemosyne `docs/screenshots/` (Playwright Chromium, 1440 px and 390 px).
+
 ## Typography
 
 - **Roboto** for all functional text: navigation, body, controls, inputs, status, metadata, dialogs, notifications, user and localized content. No Inter, Geist or other generic dashboard faces.

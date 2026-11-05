@@ -23,6 +23,8 @@ CAPABILITIES = {
     "references.create",
     "references.read",
     "references.resolve",
+    "network.egress",
+    "projections.read",
 }
 EXAMPLE_IMAGES = {"empyrean-example:0.1.0", "empyrean-example:0.1.1", "empyrean-example:0.1.2"}
 SCHEMA = json.loads((ROOT / "protocol/module-v1.schema.json").read_text())
@@ -83,11 +85,25 @@ def validate_manifest(manifest: dict, allow_example: bool = False) -> dict:
                 raise ValueError("Outgoing-reference enumeration requires references.version=2")
             if "references.create" not in caps:
                 raise ValueError("Outgoing-reference enumeration requires references.create")
+    projections = manifest.get("projections")
+    if projections is not None or "projections.read" in caps:
+        if projections is None:
+            raise ValueError("projections.read requires a projections declaration")
+        if projections["read"] and "projections.read" not in caps:
+            raise ValueError("Projection read scopes require projections.read")
+        if len(set(projections["provides"])) != len(projections["provides"]):
+            raise ValueError("Provided projections must be unique")
+        if not excludes(manifest, "0.1.4"):
+            raise ValueError("Projections require a Nexus range excluding 0.1.4")
+    if "network.egress" in caps and not excludes(manifest, "0.1.4"):
+        raise ValueError("network.egress requires a Nexus range excluding 0.1.4")
     if "backup" in manifest:
         if "storage.data" not in caps:
             raise ValueError("The backup contract applies to modules with storage.data")
         if not excludes(manifest, "0.1.2"):
             raise ValueError("The backup contract requires a Nexus range excluding 0.1.2")
+    if "icon" in manifest and not excludes(manifest, "0.1.7"):
+        raise ValueError("An application icon requires a Nexus range excluding 0.1.7")
     return manifest
 
 
@@ -96,7 +112,7 @@ def excludes(manifest: dict, version: str) -> bool:
     spec = SpecifierSet(manifest["nexus"])
     return not any(
         Version(old) in spec
-        for old in ("0.1.0", "0.1.1", "0.1.2")
+        for old in ("0.1.0", "0.1.1", "0.1.2", "0.1.3", "0.1.4", "0.1.5", "0.1.6", "0.1.7")
         if Version(old) <= Version(version)
     )
 

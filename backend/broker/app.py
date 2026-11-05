@@ -115,6 +115,17 @@ def operate(action, body):
                 type="json-file", config={"max-size": "5m", "max-file": "2"}
             ),
         )
+        if "network.egress" in manifest["capabilities"]:
+            # ADR 0010: a separate, non-internal per-module bridge. Only this module joins it;
+            # the gateway never does, and the internal network and its nexus alias stay as is.
+            egress_name = f"{INSTALLATION}-egress-{body.id}"
+            try:
+                egress = owned(client.networks.get(egress_name))
+            except NotFound:
+                egress = client.networks.create(
+                    egress_name, driver="bridge", internal=False, labels={LABEL: INSTALLATION}
+                )
+            egress.connect(container)
         return {"state": "running"}
     if action not in {"disable", "uninstall"}:
         raise ValueError("Unsupported lifecycle operation")
@@ -122,6 +133,10 @@ def operate(action, body):
         container = owned(client.containers.get(name))
         container.stop(timeout=10)
         container.remove()
+    except NotFound:
+        pass
+    try:
+        owned(client.networks.get(f"{INSTALLATION}-egress-{body.id}")).remove()
     except NotFound:
         pass
     try:

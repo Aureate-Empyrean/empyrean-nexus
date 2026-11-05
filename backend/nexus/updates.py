@@ -31,6 +31,13 @@ def _scopes(manifest, name):
     return [f"{s['module']}:{s['type']}" for s in refs.get(name, [])]
 
 
+def _projections(manifest, name):
+    projections = manifest.get("projections") or {}
+    if name == "provides":
+        return list(projections.get("provides", []))
+    return [f"{s['module']}:{s['projection']}" for s in projections.get("read", [])]
+
+
 def backup_policy(old):
     """Where a backup belongs in the update lifecycle. Requirement strength is configurable."""
     if "storage.data" not in old["capabilities"]:
@@ -96,6 +103,10 @@ def review(old, new):
         "reference_scopes": {
             "read": _set_diff(_scopes(old, "read"), _scopes(new, "read")),
             "resolve": _set_diff(_scopes(old, "resolve"), _scopes(new, "resolve")),
+        },
+        "projections": {
+            "provides": _set_diff(_projections(old, "provides"), _projections(new, "provides")),
+            "read": _set_diff(_projections(old, "read"), _projections(new, "read")),
         },
         "persistent_data": ("retained" if "storage.data" in old["capabilities"] else "none")
         + (

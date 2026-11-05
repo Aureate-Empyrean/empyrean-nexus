@@ -125,3 +125,57 @@ Architecture ADR 0008: one canonical token file, vendored by every application. 
 Real-browser QA (Playwright Chromium, live LAN installation, 0.1.4 with Mnemosyne 1.1.0): Overview, Modules, module detail, Activity, Settings, Notifications at 1440 px, and Overview/Modules at 390 px. Zero page or console errors, no horizontal overflow, gold accent and bundled Roboto from the shared tokens. Mnemosyne's full-window application was exercised through Nexus by Mnemosyne's own browser QA. An in-place module update and owner reconciliation ran on the live installation.
 
 Finding (not fixed): the first enable of a slow-starting module records "stopped responding" before "is healthy", because the initial health check can run before the container listens. Consider retrying the first check before reporting a failure.
+
+## Navigation History — implemented local pilot, 2026-11-05
+
+The current working trees include the shared host/client navigation SDK and the
+first Mnemosyne adapter. Default is off; activation requires
+`NEXUS_NAVIGATION_HISTORY=1` in the actual Nexus process, plus the matching host
+and module builds. Compose does not currently forward the flag. No production
+deployment or all-module migration was performed.
+
+The [current integration contract](navigation-history.md) documents host-owned
+history, additive internal-route URLs, incremental iframe lifecycle, per-load
+challenge/session/revision fencing, tab-local draft checkpoints, leave guards,
+old-host/module fallback and adoption requirements. A separate cross-platform
+disk-usage fix resolved the Windows `os.statvfs` failure.
+
+Recorded implementation validation: 16 real-app Chrome scenarios; 24 Nexus and
+13 Mnemosyne frontend tests; 46 affected Nexus backend tests; 30 Mnemosyne backend
+tests. Full Nexus run: 200 passed, one opt-in browser test skipped, two existing
+Windows oversized-SVG pytest fixture errors. See [PILOT.md](proposals/navigation-history/PILOT.md)
+for evidence, environment qualifications and remaining rollout gates. These
+counts describe recorded runs, not a new full-suite run for documentation sync.
+
+## Icon cache and status mark — Nexus 0.1.9, 2026-11-03
+
+- Module icons are now a validated, Nexus-owned copy (`backend/nexus/icons.py`, `docs/module-protocol.md`), so a module keeps its icon while stopped or unreachable and across Nexus restarts; previously the browser loaded it live through the gateway and showed a letter whenever the module was not running. Files live in the data volume (`module-icons/`); no database migration. Tests: `tests/test_icon_cache.py`.
+- Overview status: the glossy, glowing orb is a flat ring and check in the muted status colours (warning and error keep theirs).
+- Nexus mark in the switcher: its wrapper tile carried the bar tile's 6 px padding while the SVG kept a 26 px size, so the drawing overflowed its 20 px box by 6 px and sat 3 px right and 2.4 px low (and 30 % larger than in the bar). The wrapper now has no padding and the SVG draws 20 px, the same as in the bar; the artwork itself is centred in its viewBox, so no optical offset is applied.
+
+## Application icons — Nexus 0.1.8, 2026-11-03
+
+Modules can declare `icon` (a path they serve, `docs/module-protocol.md`, *Nexus 0.1.8 addition*); Nexus loads it through the owner-only module gateway as a same-origin image, so its policy (`img-src 'self'`) and the module sandbox are unchanged. Module tiles in the switcher, Modules, Overview and the drawer use it, with a neutral letter tile while a module is not enabled or when the image fails. Previously every module showed a gold letter because the manifest had no icon concept and `monogram()` rendered the name's first letter. Chronos 0.1.1, Lyra 0.1.1 and Mnemosyne 1.2.3 serve their own tiles at `/icon.svg` and require `>=0.1.8`.
+
+Switcher geometry: the panel overlapped the bar by 6 px (4 px on phones), because its offset (`top: 54px`) was measured from a container 60 px tall; its icon column started 12 px right of the trigger's mark; and the Nexus glyph (32 px) and module tiles (38 px) differed, so rows were 52 and 56 px tall and the name column drifted. Now the panel hangs 8 px below the bar on the bar's left edge, all tiles are 32 px under the trigger's mark, names share one column, and the shortcut, check mark and chevron share one right edge, at 1440 px, in application mode and at 390 px. Also fixed: the Overview glow widened the page to 452 px on a 390 px phone.
+
+## Interface refinement — Nexus 0.1.7, 2026-11-03
+
+Presentation only. The composition layer in `frontend/style.css` was rewritten around two materials (structure and lens) and one radius scale; see `docs/design-language.md`, *Composition*. Fixed: the application switcher, notifications and account menu let the active module show through unblurred, because the command bar's own `backdrop-filter` made it their backdrop root; the bar's glass now lives on `::before`. No API, schema, protocol, sandbox or data change; markup and the frontend tests are unchanged.
+
+Real-browser QA (Playwright Chromium, `aetest` with Chronos 0.1.0, Lyra 0.1.0, Mnemosyne 1.2.2): Overview, Modules, module drawer, install dialog, Activity, Settings, notifications, sign-in, and the application switcher over Nexus, Chronos and Lyra at 1440 px; Overview, Modules, sign-in and the switcher over Lyra at 390 px; the switcher and notifications over an injected white page and an injected high-contrast colour pattern with large white text. No page errors, no horizontal overflow. Screenshots: `docs/screenshots/` (`before-` original, `previous-` 0.1.6, `after-` 0.1.7).
+
+## Design system 2.1 composition — Nexus 0.1.6, 2026-11-03
+
+Presentation only: `frontend/aureate-tokens.css` re-vendored as token set 2.1, an atmosphere layer in `index.html`, and a composition layer appended to `frontend/style.css` (command center: status console, glass masthead, module cards, platform tiles, floating drawer, dialogs, menus and toasts; solid fallbacks without `backdrop-filter` and under `prefers-reduced-transparency`). No API, schema, protocol, sandbox or data change; markup and the frontend tests are unchanged.
+
+Real-browser QA (Playwright Chromium, disposable `aetest` installation with Chronos, Lyra and Mnemosyne 1.2.1): Overview, Modules, module drawer, install dialog, Activity, Settings, notifications, application switcher, full-window application and sign-in at 1440 px; Overview, Modules and sign-in at 390 px. No page errors, no horizontal overflow; reduced transparency verified by media emulation. Before/after: `docs/screenshots/`.
+
+## Egress and projection queries — Nexus 0.1.5, 2026-11-02
+
+Driven by Chronos (iCalendar subscriptions) and Lyra (TMDB), per architecture ADR 0010 and ADR 0011.
+
+- `network.egress` capability: per-module non-internal bridge attached only to that module's container; removed on disable/uninstall. Install review explains that destinations are not restricted.
+- `projections` manifest declaration, `projections.read` capability and `POST /api/v1/module/projections/query`: exact scopes, resolver-key-authenticated forwarding to `POST /empyrean/v1/projections/<name>`, 4 KiB query, 1 MiB / 500-item response, 5 s, availability states, nothing stored.
+- Both require a Nexus range excluding 0.1.4. Update review diffs projection scopes. Schema `capabilities.maxItems` raised from 10 to 16. No database migration; existing registrations and manifests are unchanged.
+- Verification: 169 pytest (Linux container, Python 3.13) and 18 frontend tests pass; ruff check/format clean. New tests: `tests/test_projections.py` (forwarding contract, scope/capability denial, provider failure mapping, lifecycle states, manifest rules, update diff, broker egress attach/detach).

@@ -34,6 +34,48 @@ The script creates a unique `nexus-test-*` Compose project on loopback port 1233
 
 Unit/contract tests inject an in-memory runtime stand-in and HTTP transport for deterministic failures. They do not substitute for the Docker smoke test. CI runs both. ASGI TestClient uses local event-loop communication; environments that prohibit local socket operations can hang even without outgoing network calls. Run in an environment permitting local test execution.
 
+## Navigation History pilot
+
+The shared SDK and Mnemosyne adapter are locally implemented, not production
+deployment. Read [the current protocol/adoption guide](navigation-history.md)
+before changing navigation; its flag defaults off and is not forwarded by the
+checked-in Compose file. A native Nexus process without a broker still cannot
+enable real containers merely by setting the flag.
+
+The opt-in `tests/test_navigation_browser.py` starts real Nexus, Mnemosyne and
+unchanged Chronos HTTP apps against disposable SQLite data. Only the container
+broker is replaced by `tests/navigation_pilot_runtime.py`'s loopback process
+launcher. Authentication, gateway keys, module HTML/CSP and domain APIs remain
+real. This test is distinct from both the old synthetic fixture and Docker smoke;
+never use the process launcher in production.
+
+Requirements: sibling Mnemosyne/Chronos checkouts, each application's Python
+dependencies, installed Chrome and Python Playwright. The launcher uses a
+module's `.venv` when present, or the test Python otherwise. Windows also needs
+importable timezone data and UTF-8 mode. With those dependencies installed:
+
+```powershell
+# From empyrean-nexus; use an environment with Playwright and module dependencies:
+$env:NEXUS_BROWSER_TESTS = '1'
+.\.venv\Scripts\python.exe -X utf8 -m pytest -q -s tests/test_navigation_browser.py
+Remove-Item Env:NEXUS_BROWSER_TESTS
+node scripts/sync-navigation.mjs --check
+npm test
+npm run check
+```
+
+The opt-in browser test is skipped in a default backend run. The SDK tests are
+included in Nexus `npm test`; Mnemosyne's own `npm test` includes its route codec
+and legacy frontend regression suite. The sync script without `--check` writes
+the fixed Mnemosyne vendor target; it is not a general adopter installer. Do not
+run that mutation during a documentation-only task.
+
+[PILOT.md](proposals/navigation-history/PILOT.md) records the 16 completed Chrome
+scenarios, exact recorded tool versions, setup commands and environment-specific
+suite failures. These are previous implementation results, not a declaration
+that this documentation pass reran the applications. Outstanding browser,
+container-lifecycle and failure-mode gates remain explicit.
+
 ## Contributing structure
 
 Keep module-specific code in independent examples/modules, not in Nexus routes. Add new metadata migrations at the end of `MIGRATIONS`; do not edit an already released migration. Test migration idempotence and reject newer schema versions. Protocol additions need a compatibility decision and schema/semantic/security tests.

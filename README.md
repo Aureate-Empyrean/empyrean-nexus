@@ -6,9 +6,18 @@ Empyrean Nexus is the small, self-hosted control plane for an open ecosystem of 
 
 ## Status
 
-**0.1.4 foundation / pre-release.** The reference vertical slice implements first-run setup, owner login, a dashboard, manifest review, registration, container enable/disable/removal, health checks, sandboxed routing, event publication/polling, notifications, private-by-default resource references, owner-authorized resolution, backlinks, real Activity, metadata export and opt-in persistent application infrastructure (full-window sandboxed UI, retained module data volumes, shared blobs), in-place module updates with capability review and health verification, a module backup/restore contract, reference reconciliation from module-owned state, and the shared Aureate design tokens (module applications may embed fonts). This is an initial implementation, not a security-audited production platform.
+**0.1.9 foundation / pre-release.** The reference vertical slice implements first-run setup, owner login, a dashboard, manifest review, registration, container enable/disable/removal, health checks, sandboxed routing, event publication/polling, notifications, private-by-default resource references, owner-authorized resolution, backlinks, real Activity, metadata export and opt-in persistent application infrastructure (full-window sandboxed UI, retained module data volumes, shared blobs), in-place module updates with capability review and health verification, a module backup/restore contract, reference reconciliation from module-owned state, the shared Aureate design tokens (module applications may embed fonts), (0.1.5) the reviewable `network.egress` capability and domain-ignorant projection queries between modules, (0.1.6, refined in 0.1.7) the design system 2.1 "command center" interface (`docs/design-language.md`), (0.1.8) module-owned application icons, and (0.1.9) a validated Nexus-owned copy of each icon. This is an initial implementation, not a security-audited production platform.
 
-Nexus is **not** a people database, media library, location tracker, messaging product or calendar. Meridian, Atlas, Mnemosyne, Argus, Hermes and Chronos are future independent applications; none is implemented here. Nexus has no knowledge of their domain entities.
+Nexus is **not** a people database, media library, location tracker, messaging product or calendar. Meridian, Atlas, Mnemosyne, Argus, Hermes, Chronos and Lyra are independent applications; none is implemented here. Nexus has no knowledge of their domain entities.
+
+**Local Navigation History pilot (2026-11-05):** the current working tree includes
+a shared browser-history/deep-link SDK and the first Mnemosyne integration.
+`NEXUS_NAVIGATION_HISTORY=1` must reach the actual Nexus process; default is off.
+The supplied Compose file does not forward the flag, so `.env` alone is insufficient.
+Existing authentication, opaque iframes and legacy module URLs remain in place.
+This is locally implemented/tested, not a production deployment or migration of
+all modules. See [activation, module adoption and limitations](docs/navigation-history.md)
+and the [real-app validation record](docs/proposals/navigation-history/PILOT.md).
 
 ## Start with Docker
 
@@ -92,6 +101,7 @@ Native development can exercise setup, metadata and the UI; real container lifec
 - [Architecture](docs/architecture.md) and [decisions](docs/adr/0001-foundation.md)
 - [Module lifecycle and recovery](docs/lifecycle-and-recovery.md): updates, backup/restore, reference reconciliation
 - [Module protocol](docs/module-protocol.md), [JSON Schema](protocol/module-v1.schema.json), [API](docs/api.md)
+- [Navigation history and deep links](docs/navigation-history.md): default-off local pilot, shared SDK, iframe lifecycle, draft recovery and adoption contract
 - [Security model](docs/security-model.md), [security reporting](SECURITY.md)
 - [Ports](docs/ports.md), [deployment](docs/deployment.md), [development](docs/development.md)
 - [Contribution guide](CONTRIBUTING.md), [branding policy](docs/branding.md)

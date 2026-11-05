@@ -385,3 +385,31 @@ test('module details explain permissions in plain language and keep the technica
     await until(()=>document.querySelector('#drawer').hidden);
   } finally {h.close();}
 });
+
+test('module tiles show the cached module icon, also while stopped, and fall back to a neutral letter', async()=>{
+  const iconic={id:'chronos',state:'enabled',health:'healthy',manifest:{id:'chronos',name:'Chronos',version:'0.1.1',icon:'/icon.svg',routes:{ui:'/',api:'/api'},capabilities:['ui.application']},provenance:{status:'community'},external_origins:[]};
+  const stopped={id:'lyra',state:'disabled',health:'unknown',manifest:{id:'lyra',name:'Lyra',version:'0.1.1',icon:'/icon.svg',routes:{ui:'/',api:'/api'},capabilities:['ui.application']},provenance:{status:'community'},external_origins:[]};
+  const h=await harness('/app/modules',undefined,[],{},[iconic,stopped]);
+  try {
+    await until(()=>document.querySelector('[data-module-id="chronos"] .monogram'));
+    const tile=document.querySelector('[data-module-id="chronos"] .monogram');
+    assert.ok(tile.classList.contains('has-icon'));
+    assert.equal(tile.querySelector('img').getAttribute('src'),'/api/v1/modules/chronos/icon?v=0.1.1');
+    assert.equal(tile.querySelector('img').getAttribute('alt'),'');
+    // A stopped module keeps its identity: Nexus serves its last valid icon.
+    const off=document.querySelector('[data-module-id="lyra"] .monogram');
+    assert.equal(off.querySelector('img').getAttribute('src'),'/api/v1/modules/lyra/icon?v=0.1.1');
+    // No icon declared: letter tile.
+    assert.equal(document.querySelector('[data-module-id="test-module"] .monogram').textContent,'T');
+    // No valid icon available yet (404) or undecodable: replaced by the letter.
+    tile.querySelector('img').dispatchEvent(new window.Event('error'));
+    assert.equal(tile.classList.contains('has-icon'),false); assert.equal(tile.textContent,'C');
+    // The switcher uses the same tiles, and the current application keeps its check mark.
+    document.querySelector('#product-switch').click();
+    const rows=[...document.querySelectorAll('#launcher-items .launcher-item')];
+    assert.deepEqual(rows.map(r=>r.querySelector('strong').textContent),['Nexus','Test module','Chronos']);
+    assert.ok(rows[2].querySelector('.monogram img'));
+    assert.ok(rows[0].classList.contains('current')); assert.ok(rows[0].querySelector('.tick'));
+    assert.equal(document.activeElement,rows[0]);
+  } finally {h.close();}
+});

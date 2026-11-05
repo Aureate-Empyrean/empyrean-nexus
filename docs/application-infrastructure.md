@@ -33,6 +33,23 @@ answering `{opened:false, trusted:true}` (or an error if refused). mailto opens 
 the reviewed recipient address, never module-supplied fields. Modules own their
 navigation and switcher. See [security model](security-model.md#external-navigation).
 
+### Local navigation-history extension
+
+The current local Nexus + Mnemosyne pilot adds `navigation: {versions:[1]}` to the
+application `context` result when the Nexus process has `NEXUS_NAVIGATION_HISTORY=1`;
+otherwise it reports `{versions:[]}`. This browser context is distinct from the
+bearer-authenticated `/api/v1/module/context`. No new manifest field or grant is
+required beyond the existing enabled `ui.application` boundary.
+
+The existing `navigate` action still switches module ID only (and does not reply
+on a successful switch). Internal routes use the shared
+`empyrean-navigation-v1` SDK: parent history, challenge/session/revision-bound
+restores, acknowledged checkpoints and prepare-leave handling. Bundle the client
+inline; never relax iframe/CSP restrictions to inspect module state. Only
+Mnemosyne has an adapter today. See the [current contract/adoption guide](navigation-history.md)
+for feature activation, old-host fallback, URL grammar, frame retention and draft
+security. This is a default-off local implementation, not production deployment.
+
 Locally built images can use immutable Docker image IDs `sha256:<64 hex>` (local
 lookup only); remote images still require repository digests. Tags are not a
 production image identity. Locale is an optional installation setting, default en.

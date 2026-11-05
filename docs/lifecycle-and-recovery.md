@@ -2,6 +2,23 @@
 
 Nexus 0.1.3 adds three module-contract seams from the ecosystem architecture (`concepts/module-contract.md`, `concepts/resource-identity-and-lifecycle.md`, `concepts/backups.md`): outgoing-reference enumeration, backup/restore participation and in-place updates. Nexus orchestrates; modules stay authoritative for their data and never expose their database or schema. All module-facing endpoints below are fixed paths on the module's private network, authenticated with the module's `X-Nexus-Resolver-Key` credential (never a browser credential).
 
+## Browser draft checkpoints are separate (local pilot)
+
+The default-off [Navigation History pilot](navigation-history.md) adds tab-local
+recovery copies, not server backups or a new module volume. Parent routing and
+lifecycle refresh checkpoint a participating frame before replacing its UI; that
+does not make the browser a guard/transaction around server stop/update/restore.
+Routine same-module refresh retains the iframe, while module/path/version/image
+changes require a new frame/session.
+
+Save or recover drafts before update/restore, uninstall, feature rollback or
+closing the tab. Uninstall keeps the module's durable data volume as described
+below, but the UI removes its **browser checkpoint copy**. That is distinct from
+authoritative saved data, and the uninstall dialog does not add the sign-out
+flow's separate dirty-checkpoint warning. Sign-out warns before clearing dirty
+tab checkpoints. Storage/timeouts and recovery limits are documented in the
+[current navigation contract](navigation-history.md#draft-recovery-and-security-boundaries).
+
 ## Outgoing-reference enumeration (Entity References v2)
 
 Declared with `"references": {"version": 2, "enumerate": true, ...}` plus `references.create`. The module serves:

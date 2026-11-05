@@ -26,9 +26,19 @@ Normative machine-readable schema: [`protocol/module-v1.schema.json`](../protoco
 | `events.produces`, `events.consumes` | Exact event types; no wildcards |
 | optional `release.url` | HTTPS release information for a future provider; informational in v1 |
 
-A route is a simple absolute path, not a URL, with no query, fragment, escape sequence or parent traversal. The gateway forwards subsequent relative paths to the same fixed container/port; it cannot target arbitrary hosts. Routes declare entry points, not extra access control within a module.
+Manifest route fields are simple absolute paths, not URLs, with no query, fragment,
+escape sequence or parent traversal. The gateway forwards subsequent relative
+paths to the same fixed container/port; it cannot target arbitrary hosts. Routes
+declare entry points, not extra access control within a module. These fields are
+distinct from the optional browser [navigation route reference](navigation-history.md#ownership-and-urls),
+which may carry an internal query/fragment and is never used as a gateway target.
 
-There are no module dependencies, arbitrary service names, custom commands, extra environment variables, volumes, host devices, GPU grants, external networking, privileged flags or custom resource limits in v1. Do not smuggle these in through unknown manifest fields; validation rejects them. Images declaring Docker volumes are also rejected.
+There are no module dependencies, arbitrary service names, custom commands, extra
+environment variables, custom volumes, host devices, GPU grants, privileged flags
+or custom resource limits in v1. Persistent data is available through `storage.data`
+([application infrastructure](application-infrastructure.md)); outbound networking
+requires the reviewed `network.egress` grant described below. Do not smuggle
+privileges through unknown fields. Images declaring Docker volumes are rejected.
 
 The local reference tag exceptions are `empyrean-example:0.1.0`, `0.1.1` and `0.1.2`, if the operator enables `NEXUS_ALLOW_EXAMPLE=1` on both services. It must already exist locally. All other images require digests. An image digest ensures identity of bytes, not trustworthiness or vulnerability freedom.
 
@@ -42,7 +52,12 @@ The broker supplies:
 - `NEXUS_RESOLVER_KEY`: private credential for authenticating Nexus resolver requests; never log/export it.
 - `NEXUS_TOKEN`: bearer credential scoped to this enabled module and declared capabilities.
 
-Run as UID/GID 10001 with a read-only root filesystem. `/tmp` is a 16 MiB temporary filesystem; no persistent data storage is supported. Runtime limits are 256 MiB memory, 0.5 CPU, 64 processes and rotated container logs (2 × 5 MiB). No public port is created. Module Docker images should not contain private credentials, run package installation at startup or require root.
+Run as UID/GID 10001 with a read-only root filesystem. `/tmp` is a 16 MiB temporary
+filesystem. Without `storage.data` the runtime is disposable; with that grant,
+the broker owns a retained `/data` volume. Runtime limits are 256 MiB memory,
+0.5 CPU, 64 processes and rotated logs (2 × 5 MiB). No public port is created.
+Images should not contain private credentials, install packages at startup or
+require root.
 
 Tokens rotate on each enable and are revoked before disable/removal. Retry a Nexus API call made during startup: the container can start before the registration is committed as enabled. On a Nexus restart the existing token remains valid if its container is reconciled successfully. Never log the token.
 
@@ -60,7 +75,12 @@ Enable, disable, inspect, health and uninstall routes are documented in [API](ap
 | `events.subscribe` | GET module events | Only exact `events.consumes` types |
 | `notifications.publish` | POST module notifications | Plain text, 500 characters, source stamped by Nexus |
 
-Every valid module token can call `/api/v1/module/context` for its own ID, protocol, Nexus version and grants. Tokens cannot call owner endpoints. Event subscriptions may reveal private data in future; review exact event types, even though this reference only uses a harmless ping. Host/network/storage capabilities are unsupported rather than represented as misleading, unenforced permissions.
+Every valid module token can call `/api/v1/module/context` for its own ID,
+protocol, Nexus version and grants. Tokens cannot call owner endpoints. Review
+exact event types. The table above lists the foundation event/notification grants;
+later sections and [application infrastructure](application-infrastructure.md)
+document the additional enforced storage, UI, reference, network and projection
+capabilities. Arbitrary host access remains unsupported.
 
 ## Event contract
 
@@ -95,9 +115,35 @@ Module API traffic is limited to 120 requests per minute per module. Rate limits
 
 ## Browser contract
 
-Serve small HTML with inline styles/scripts if needed. The gateway imposes `sandbox allow-scripts`, `default-src 'none'`, no network connections/forms, and allows only data images, data fonts (since 0.1.4) and inline style/script. It strips response cookies, redirects and all other upstream response headers except content type. Owner cookies, authorization and request headers are not forwarded; JSON request body and method are forwarded. A 5-second timeout and 2 MiB response cap apply.
+Serve HTML with bundled inline styles/scripts. The gateway imposes CSP
+`sandbox allow-scripts allow-downloads`, `default-src 'none'`, no network/forms,
+data images/fonts and inline style/script. The non-application iframe further
+restricts this with its `allow-scripts` attribute. Response cookies/redirects and
+module security headers are not forwarded; owner browser credentials/headers
+are not passed upstream. Nexus injects the module's gateway key, and forwards
+method, query and body under the gateway's validation/size policy. A 5-second
+timeout and 2 MiB response cap apply.
 
-The module UI cannot read Nexus storage or invoke owner APIs. The Nexus-side API explorer supplies CSRF-protected requests to the declared API prefix. This is a narrow foundation, **not general-purpose SPA hosting**. Supporting a full module frontend will require a dedicated-origin or similarly explicit isolation design, not a relaxed same-origin iframe.
+The module UI cannot directly read Nexus storage or invoke owner APIs. The
+Nexus-side explorer supplies CSRF-protected requests to the declared prefix.
+Full applications already use the opaque `ui.application` message bridge described
+in [application infrastructure](application-infrastructure.md), rather than a
+relaxed same-origin iframe.
+
+## Navigation History pilot (local, default-off)
+
+The [shared navigation SDK](navigation-history.md) is a browser bridge extension,
+not a new Module Protocol manifest field, capability or required module dependency.
+The host advertises version 1 through application context only when its process
+has `NEXUS_NAVIGATION_HISTORY=1`. Existing manifests/URLs and the original bridge
+remain valid; modules without an adapter keep legacy behavior. Mnemosyne is the
+first local adapter; no all-module or production migration is claimed.
+
+For adoption, preserve bootstrap paths, provide a domain route codec and legacy
+fallback, bundle the shared client inline, fence async restores, and implement
+acknowledged draft recovery before allowing an editor to unmount. The SDK's
+default `beforeLeave` callback does not protect drafts. See the [adoption checklist](navigation-history.md#adopting-the-pilot-in-another-module)
+and [recorded real-app tests](proposals/navigation-history/PILOT.md).
 
 ## Entity References extension v1
 
@@ -113,3 +159,28 @@ All are opt-in manifest fields validated by the same strict schema; older Nexus 
 - `backup: {"version": 1}` (requires `storage.data`): the module implements export, validate, restore and finalize.
 
 Contracts, failure semantics and the owner APIs: [lifecycle and recovery](lifecycle-and-recovery.md). Module Protocol v1 itself is unchanged; existing manifests remain valid.
+
+## Nexus 0.1.5 additions
+
+Opt-in, validated by the same strict schema; a manifest using them must exclude Nexus 0.1.4 and earlier (for example `>=0.1.5,<0.2.0`), which reject them.
+
+- **`network.egress`** (architecture ADR 0010). The broker creates a second, per-module bridge network `<installation>-egress-<id>` **without** `internal` and connects only this module's container to it. The internal network, its `nexus` alias and the gateway are unchanged; the gateway never joins an egress network. Disable and uninstall remove it. The capability is not a destination allowlist: the module must protect user-supplied destinations against SSRF (resolve and refuse non-public addresses, pin the vetted address, re-check redirects, bound time and size, never log URLs or credentials).
+- **Projection queries** (architecture ADR 0011, `concepts/projections.md`). Declaration:
+
+  ```json
+  "projections": {"version": 1, "provides": ["dated-items"], "read": [{"module": "lyra", "projection": "dated-items"}]}
+  ```
+
+  `provides` needs no capability: it promises `POST /empyrean/v1/projections/<name>` on the module's private port, authenticated with `X-Nexus-Resolver-Key` and receiving `{requester, query, cursor}`. `read` requires `projections.read`; scopes are exact module/projection pairs. A consumer calls `POST /api/v1/module/projections/query` with `{module, projection, query (object ≤ 4 KiB), cursor}`. Nexus checks the capability and scope, the target's state and declaration, forwards with a 5 s timeout, accepts at most 1 MiB and 500 items, and returns `{module, projection, availability, items, next_cursor}`. `availability`: `available`, `module_uninstalled`, `module_disabled`, `not_provided`, `forbidden` (provider 403), `temporarily_unavailable` (anything else). Items are opaque to Nexus and are never stored.
+
+Install review and update diffs show both (`capabilities`, `projections.provides`, `projections.read`).
+
+## Nexus 0.1.8 addition: application icon
+
+Optional manifest field `"icon": "/icon.svg"`: a path the module serves itself (`^/…\.(svg|png|webp)$`; no host, query or `..`). A manifest that declares it must exclude Nexus 0.1.7 and earlier (for example `>=0.1.8,<0.2.0`).
+
+Nexus shows the icon in the application switcher, the module list, the module drawer and Overview. Serve a square, full-bleed tile in the application's own colours; Nexus applies its corner radius and edge light, so do not round or shadow the artwork. Icon changes are not permissions and do not appear in the update review.
+
+Since Nexus 0.1.9 the icon is Nexus-owned once fetched (`backend/nexus/icons.py`): Nexus requests it from the module's private port, validates it, keeps the last valid copy in its data volume (`module-icons/<id>.icon` and `<id>.json`, keyed by module ID), and serves it to the owner at `GET /api/v1/modules/<id>/icon` (same origin, so the page keeps `img-src 'self'`). The copy survives module outages and Nexus restarts and is refreshed only when the manifest's icon path, version or image changes; a failed refresh keeps it, and failures are retried at most once a minute. Disabling a module keeps its copy, uninstalling deletes it. Until a valid copy exists, Nexus shows a neutral letter tile.
+
+Validation: the response must be 200 with the content type of the declared format, at most 64 KiB; PNG and WebP must carry their signatures. SVG must be UTF-8, well-formed, rooted in the SVG namespace, without DTD, entities or style sheet instructions, and use only static drawing elements (`svg g defs title desc path circle ellipse rect line polyline polygon linearGradient radialGradient stop clipPath mask symbol use`): no script, `foreignObject`, `style`, `image`, links or animation, no event-handler attributes, and no references except to its own elements (`#id`, `url(#id)`); `javascript:` and `data:` values are rejected. The copy is served with `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox`, `X-Content-Type-Options: nosniff`, an ETag and `Cache-Control: private, no-cache`, so even an SVG opened directly is an inert document.

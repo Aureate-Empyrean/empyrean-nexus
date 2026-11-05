@@ -11,10 +11,14 @@ Protect owner identity, metadata, private events, host integrity and separation 
 - Cookies are HttpOnly/SameSite=Strict and Secure when the configured origin uses HTTPS. Mutations require session-bound CSRF tokens; foreign/null origins are rejected. Explicit proxy headers are not trusted. No permissive CORS.
 - Setup/login have per-peer request limits; modules have token-scoped request limits. One worker is required. These are abuse friction, not DDoS protection; use proxy-level limits for remote deployments. A reverse proxy's IP is intentionally shared unless a future trusted-proxy policy is designed.
 - JSON schemas reject unknown privilege fields. Ports and IDs are validated and unique. SQL is parameterized. Compatibility is checked at install, again by the broker at enable, and at Nexus startup, where an enabled module that no longer supports the running version loses its credentials.
-- Modules get private internal networks and token-scoped API access. No automatic host mounts, secret sharing, external network grants, host-published ports, privileged mode or Docker socket. Their tokens cannot authenticate owner routes.
+- Modules get private internal networks and token-scoped API access. No automatic host mounts, secret sharing, host-published ports, privileged mode or Docker socket. Their tokens cannot authenticate owner routes.
+- Outbound Internet access exists only for modules granted `network.egress` (0.1.5): a separate per-module non-internal bridge that only that container joins. It does not restrict destinations. A module holding it can send anything it holds anywhere, and can reach addresses routable from the Docker host unless host firewall rules prevent it; it is responsible for SSRF protection of user-supplied URLs. Grant it only to modules whose declared integration needs it.
+- Projection queries (0.1.5) are forwarded only for exact, reviewed module/projection scopes, authenticated to the provider with its resolver key and stamped with the requester; providers decide what to disclose. Nexus bounds and forwards responses without storing them.
 - Runtime: non-root UID, read-only root, dropped capabilities, no-new-privileges, fixed CPU/memory/PID/log bounds, 16 MiB temporary storage. Images declaring volumes are rejected.
 - Browser: a strict CSP opaque-origin sandbox prevents module HTML from inheriting Nexus's same-origin powers. Parent UI escapes untrusted text. Credentials, redirect/cookie headers and module-supplied security headers are not proxied.
-- Gateway paths cannot select arbitrary hosts. Requests are capped at 64 KiB; upstream responses at 2 MiB, with a 5-second timeout. No redirects or streaming/WebSocket support.
+- Gateway paths cannot select arbitrary hosts. Ordinary owner request bodies are
+  capped at 64 KiB; module gateway/blob request bodies and gateway responses at
+  2 MiB. Upstream timeout is 5 seconds. No redirects or streaming/WebSocket support.
 - Requested/completed/failed lifecycle actions are audited. Errors revoke module access and retain cleanup state. Notifications show failure rather than fake success.
 
 ## Honest limitations
@@ -34,6 +38,30 @@ Health is on demand and represents an HTTP status at that instant. Nexus health 
 ## Reporting and changes
 
 See [SECURITY.md](../SECURITY.md). Changes to schemas, routing, broker policy, auth and capability enforcement require tests that demonstrate denied behavior, not just the happy path. Do not relax browser sandboxing or add broad mounts to fix module compatibility.
+
+## Navigation history and draft checkpoints (local pilot)
+
+The default-off [navigation extension](navigation-history.md) does not change HTTP
+authentication, CSRF, capabilities, the gateway key or opaque iframe sandboxing.
+The host validates the connected enabled application's `contentWindow`, binds
+module identity itself, and uses per-load challenges plus session/revision fences.
+Opaque `null` origin alone is not identity. Parent-to-child wildcard delivery is
+limited to the bound opaque frame; no auth credentials are included.
+
+Routes are bounded data, never fetch targets or resource authority. Draft
+checkpoints deliberately contain module-owned private text and are stored as JSON
+in the trusted parent's tab-local sessionStorage, keyed by owner username and
+bound module. This is not encryption, a vault, server backup or a new source of
+domain truth. The child receives its own snapshot through the bridge rather than
+direct storage access. Compromised parent code/host administrators remain trusted
+with that text; never put Janus vault secrets into this channel.
+
+Size/rate limits and explicit quota/timeout errors bound the mechanism. SPA leave
+requires an acknowledged final checkpoint; full-document close/crash relies on
+previously stored snapshots and the module's unload warning. Sign-out warns before
+clearing dirty checkpoints; uninstall clears that module's copy. See [limitations
+and rollout gates](navigation-history.md#validation-and-remaining-gates) rather than
+assuming all failure combinations or all browsers have been validated.
 
 ## Reference boundaries
 

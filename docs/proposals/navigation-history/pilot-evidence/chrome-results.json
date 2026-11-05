@@ -1,0 +1,23 @@
+{
+  "browser": "157.0.8103.39",
+  "checks": [
+    "Authenticated direct deep link and opaque iframe isolation",
+    "Notes -> Tasks -> Back -> Notes; Back -> Forward",
+    "Tasks -> task detail -> Back -> Tasks; Forward restores task detail",
+    "Mnemosyne -> legacy Chronos -> Back restores previous internal view",
+    "Page reload reconstructs task list and selected detail",
+    "Mouse4/Mouse5 native browser traversal restores actual module views",
+    "Unsaved edit flushes before internal click navigation",
+    "Unsubmitted capture draft survives internal navigation and reload",
+    "Failed-save draft survives traversal and full page reload outside URL",
+    "Failed-save guard and draft recovery across real module unmount",
+    "Real backend revision conflict retains local text until explicit recovery choice",
+    "Deep links restore their own workspace independently of last-opened workspace",
+    "Preview and search view participate in history without putting search text in URLs",
+    "Missing-resource deep link retains its address and shows an error",
+    "Legacy resource deep-link URL remains valid",
+    "Sign-out warns before clearing retained drafts and revokes the session normally"
+  ],
+  "initial_history_length": 2,
+  "scope": "Real HTTP apps; disposable process broker; no Docker or deployment"
+}

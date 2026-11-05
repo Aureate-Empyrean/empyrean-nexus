@@ -11,7 +11,7 @@ Owner authentication is an HttpOnly SameSite=Strict cookie, valid for 12 hours. 
 | POST | `/api/v1/auth/login` | Local owner login |
 | GET | `/api/v1/auth/session` | Current username and CSRF token |
 | POST | `/api/v1/auth/logout` | Revoke current session |
-| GET | `/api/v1/system` | Version, installation, DB liveness, storage and update-not-checked state |
+| GET | `/api/v1/system` | Version, installation, storage/update state and opt-in browser navigation version advertisement |
 | PATCH | `/api/v1/settings` | Change installation display name |
 | GET | `/api/v1/protocol` | JSON Schema for protocol v1 |
 | GET | `/api/v1/example-manifest` | Reference manifest for review |
@@ -30,7 +30,24 @@ Owner authentication is an HttpOnly SameSite=Strict cookie, valid for 12 hours. 
 | GET | `/api/v1/audit` | Most recent 100 audit records |
 | GET | `/api/v1/export` | Full retained metadata export without credentials |
 
-Common responses: 401 authentication required, 403 origin/CSRF/capability rejected, 404 missing module, 409 setup/registration/state conflict, 413 body too large, 422 invalid contract, 429 rate limited, 502 runtime/upstream unavailable. Responses never contain a module bearer token. All JSON request models reject unknown fields. Request bodies are capped at 64 KiB even when sent without Content-Length.
+Common responses: 401 authentication required, 403 origin/CSRF/capability rejected, 404 missing module, 409 setup/registration/state conflict, 413 body too large, 422 invalid contract, 429 rate limited, 502 runtime/upstream unavailable. Responses never contain a module bearer token. JSON request models reject unknown fields. Ordinary owner request bodies are capped at 64 KiB even without Content-Length; gateway/blob exceptions are described below.
+
+### Browser navigation feature discovery (local pilot)
+
+The owner-authenticated `/api/v1/system` includes
+`navigation: {versions:[1]}` only for an actual Nexus process environment of
+`NEXUS_NAVIGATION_HISTORY=1`, otherwise `{versions:[]}`. The application
+`empyrean-v1` bridge's `context` result forwards that advertisement. This is
+distinct from the bearer-authenticated `/api/v1/module/context`; there is no new
+HTTP navigation/draft endpoint or manifest field. Internal routing/checkpoints
+use the bounded `empyrean-navigation-v1` browser channel. The existing bridge
+`navigate` still switches module ID only. See [navigation contract](navigation-history.md).
+
+The gateway request-body exception is 2 MiB for `/modules/*` (also 2 MiB for the
+module blob endpoint); ordinary owner APIs remain 64 KiB. Navigation route and
+checkpoint messages have separate browser-channel bounds. Free data-space
+reporting now uses cross-platform `shutil.disk_usage`, resolving the local Windows
+`os.statvfs` failure without changing authentication or storage ownership.
 
 `/api/v1/export` uses `format=empyrean-nexus-export`, `version=1`, a UTC creation timestamp, and settings/modules/events/notifications/audit arrays. It omits owners' password hashes, session tokens and module bearer tokens. Audit and events can still contain private metadata: protect exported files. An export is not a full backup or accepted restore input.
 

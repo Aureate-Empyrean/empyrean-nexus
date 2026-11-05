@@ -9,7 +9,19 @@ Nexus is the Aureate Empyrean control center: the place where you see whether th
 - **Application mode.** An application (`ui.application`) takes the full window. Nexus steps back to a thin gold edge at the top; hovering it or moving keyboard focus into it slides the platform bar down, so the launcher and control center stay one gesture away without wrapping the application in chrome.
 - **Module details** open in a drawer beside the Modules list. It pushes the list aside on wide screens and overlays it on narrower ones. Escape closes it and returns focus to the row.
 
-`frontend/router.js` uses normal links, pushState and popstate under `/app/`. Refresh preserves the route; Back/Forward re-render it; unknown routes show a not-found view.
+`frontend/router.js` uses normal links, pushState and popstate under `/app/`.
+Unknown shell routes/envelopes show a not-found view. The [default-off local
+Navigation History pilot](navigation-history.md) also restores internal Mnemosyne
+views through the parent URL: same-module routing retains the opaque iframe,
+and Back/Forward or native Mouse4/5 restores the selected view/resource/drawer.
+Older modules keep their existing internal behavior. This is local pilot support,
+not a claim that every module is deep-linkable or deployed with it enabled.
+
+Participating views checkpoint drafts before parent SPA navigation. If that fails,
+the host keeps the editor recoverable and shows an error; the requested address
+may temporarily differ from the retained view. Sign-out warns before clearing
+dirty tab checkpoints. Reload relies on acknowledged tab snapshots and the
+module's unload warning, not an unconditional guarantee for unsaved text.
 
 ## Surfaces
 

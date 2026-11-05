@@ -2088,3 +2088,1027 @@ dialog::backdrop {
     animation: none;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   Design system 2.1 composition — "command center" (ADR 0012, ADR 0014)
+   Restrained golden illumination over a deep night. Two kinds of surface only:
+   - structure: quiet, nearly opaque panels with hairline rows for ordinary content;
+   - lens: optical glass (specular rim, directional sheen, deep blur, tint) for the
+     command bar and everything that floats over content: menus, the application
+     switcher, the drawer, dialogs and toasts.
+   One radius scale: controls 9 px, panels 16 px, floating glass 18 px. Pills are kept
+   for counts only. This layer follows the legacy rules above and supersedes them.
+   ══════════════════════════════════════════════════════════════ */
+
+:root {
+  --accent-2: #8c6734;
+  --frame: 12px;
+  --bar: 60px;
+  --r-control: 9px;
+  --r-panel: 16px;
+  --r-float: 18px;
+  --hairline: rgba(255, 255, 255, 0.065);
+  --panel-bg: rgba(13, 14, 17, 0.74);
+  /* Lens: tint over a deep blur. Strong enough that text behind a menu dissolves into
+     colour, so the foreground never competes with it; dark enough for white text over
+     light, colourful or image-heavy module backgrounds. */
+  --lens-tint: rgba(17, 16, 14, 0.7);
+  --lens-tint-strong: rgba(15, 14, 13, 0.84);
+  --lens-blur: blur(32px) saturate(165%) brightness(0.78);
+  --lens-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.018) 26%, rgba(255, 255, 255, 0) 55%);
+  --lens-light: radial-gradient(130% 90% at 0% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 58%);
+  --lens-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.13),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.32),
+    0 0 0 0.5px rgba(0, 0, 0, 0.7),
+    0 2px 6px rgba(0, 0, 0, 0.28),
+    0 28px 70px -22px rgba(0, 0, 0, 0.8);
+  /* Specular rim: bright where the light comes from (top left), warm at the far edge. */
+  --lens-rim: linear-gradient(160deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.06) 28%, rgba(255, 255, 255, 0.015) 62%, color-mix(in srgb, var(--accent) 26%, transparent));
+}
+
+body {
+  background: var(--canvas);
+}
+.atmosphere {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    radial-gradient(70vw 55vh at 50% -18%, color-mix(in srgb, var(--accent) 28%, transparent), transparent 68%),
+    radial-gradient(55vw 60vh at 100% 105%, rgba(92, 108, 168, 0.16), transparent 66%),
+    radial-gradient(50vw 60vh at -5% 70%, color-mix(in srgb, var(--accent-2) 26%, transparent), transparent 64%),
+    linear-gradient(180deg, #0c0b09, var(--void) 60%);
+}
+/* Orbits: the Nexus mark, drawn faintly behind the content. */
+.orbit {
+  position: absolute;
+  left: 50%;
+  top: -34vh;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent);
+  transform: translateX(-50%);
+}
+.orbit-1 {
+  width: 70vh;
+  height: 70vh;
+}
+.orbit-2 {
+  width: 112vh;
+  height: 112vh;
+  border-color: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.orbit-3 {
+  width: 160vh;
+  height: 160vh;
+  border-color: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+/* ── Materials ───────────────────────────────────────────────── */
+
+/* Structure: ordinary content. No blur, no float shadow, no nested cards. */
+.overview-grid,
+.module-list,
+.settings,
+.timeline:not(.compact),
+.empty-state {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.022), rgba(255, 255, 255, 0) 140px),
+    var(--panel-bg);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+/* Lens: floating glass. */
+.popover,
+.drawer,
+dialog,
+#toast,
+.auth-box {
+  border: 0;
+  background: var(--lens-sheen), var(--lens-light), var(--lens-tint);
+  box-shadow: var(--lens-shadow);
+  -webkit-backdrop-filter: var(--lens-blur);
+  backdrop-filter: var(--lens-blur);
+}
+.drawer,
+dialog {
+  background: var(--lens-sheen), var(--lens-light), var(--lens-tint-strong);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 1px 0 0 rgba(255, 255, 255, 0.05),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 0 0.5px rgba(0, 0, 0, 0.7),
+    0 2px 6px rgba(0, 0, 0, 0.28),
+    0 40px 100px -30px rgba(0, 0, 0, 0.85);
+}
+.popover::after,
+#toast::after,
+.auth-box::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: var(--lens-rim);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+#toast,
+.auth-box {
+  position: relative;
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .popover,
+  .drawer,
+  dialog,
+  #toast,
+  .auth-box,
+  .masthead::before {
+    background: var(--surface-solid);
+  }
+}
+
+/* ── Command bar ─────────────────────────────────────────────── */
+
+/* The bar's glass lives on ::before. A backdrop-filter on the bar itself would make it
+   the backdrop root of the switcher and menus inside it, and their blur would then see
+   only the bar, letting the page or module behind them show through unblurred. */
+.masthead {
+  top: var(--frame);
+  height: var(--bar);
+  margin: var(--frame) var(--frame) 0;
+  padding: 0 10px 0 8px; /* trigger 8 px inside the bar edge: the switcher's left edge */
+  border: 0;
+  border-radius: var(--r-float);
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  /* The bar's rim is edge light (inset shadows), not a masked ring: a mask here
+     splits into compositing seams around the controls inside the bar. */
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 1px 0 0 rgba(255, 255, 255, 0.06),
+    inset -1px 0 0 color-mix(in srgb, var(--accent) 14%, transparent),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.35),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 0 0 0.5px rgba(0, 0, 0, 0.7),
+    0 2px 6px rgba(0, 0, 0, 0.28),
+    0 22px 60px -24px rgba(0, 0, 0, 0.75);
+}
+.masthead::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--lens-sheen), var(--lens-light), rgba(17, 16, 14, 0.62);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+}
+.product-switch {
+  height: 44px;
+  padding: 0 10px 0 6px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+}
+.product-switch:hover,
+.product-switch[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.05);
+}
+.product-switch .nexus-mark,
+.launcher-glyph.nexus {
+  width: 32px;
+  height: 32px;
+  padding: 6px;
+  border-radius: var(--r-control);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0) 55%),
+    linear-gradient(150deg, var(--accent-hi), var(--accent) 55%, var(--accent-2));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 0 0 0.5px rgba(0, 0, 0, 0.5),
+    0 6px 16px -8px var(--accent-glow);
+}
+.product-switch .nexus-mark .mark-orbit,
+.product-switch .nexus-mark .mark-node,
+.launcher-glyph.nexus .mark-orbit,
+.launcher-glyph.nexus .mark-node {
+  stroke: #1b1408;
+  fill: none;
+}
+.product-switch .nexus-mark .mark-star,
+.launcher-glyph.nexus .mark-star {
+  fill: #1b1408;
+}
+/* Navigation: words on the bar, one gold light under the current place. */
+.nav {
+  gap: 2px;
+  padding: 0;
+  margin-left: 6px;
+  border: 0;
+  background: transparent;
+}
+.nav a {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--text-2);
+}
+.nav a:hover {
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--text);
+}
+.nav a.active {
+  color: var(--text);
+  background: transparent;
+}
+.nav a.active .i {
+  color: var(--accent-hi);
+}
+.nav-ink {
+  display: block;
+  bottom: 1px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent-hi) 20%, var(--accent) 80%, transparent);
+  box-shadow: 0 0 10px 1px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.icon-button,
+.account {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+}
+.icon-button:hover,
+.account:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.settings-link.active {
+  color: var(--accent-hi);
+  background: rgba(255, 255, 255, 0.05);
+}
+.avatar {
+  background: linear-gradient(150deg, var(--accent-hi), var(--accent) 60%, var(--accent-2));
+  color: #1b1408;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+#unread-indicator {
+  background: var(--accent);
+  color: #1b1408;
+  box-shadow: 0 0 0 2px #15130f;
+}
+
+/* ── Controls ────────────────────────────────────────────────── */
+
+button,
+.button-link {
+  border-radius: var(--r-control);
+  border-color: rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+button:hover,
+.button-link:hover {
+  background: rgba(255, 255, 255, 0.075);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+.primary,
+.button-link.primary {
+  border-color: color-mix(in srgb, var(--accent-hi) 45%, transparent);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 60%),
+    linear-gradient(135deg, var(--accent-hi), var(--accent) 55%, color-mix(in srgb, var(--accent) 70%, var(--accent-2)));
+  color: #1b1408;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 6px 18px -10px var(--accent-glow);
+}
+.primary:hover,
+.button-link.primary:hover {
+  filter: brightness(1.06);
+}
+.quiet,
+.button-link.quiet,
+.link-button,
+.section-link,
+.popover-footer,
+.product-switch,
+.icon-button,
+.account,
+.nav a,
+.menu-item,
+.launcher-item,
+.launcher-manage,
+.notice-line {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+.quiet:hover,
+.button-link.quiet:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+.danger {
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 25%, transparent);
+}
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  border-radius: var(--r-control);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(0, 0, 0, 0.22);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+input:not([type="checkbox"]):not([type="radio"]):focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent-line);
+  box-shadow:
+    0 0 0 3px var(--accent-soft),
+    inset 0 1px 2px rgba(0, 0, 0, 0.3);
+  outline: none;
+}
+button:focus-visible,
+.button-link:focus-visible,
+.nav a:focus-visible,
+.icon-button:focus-visible,
+.module-row:focus-visible,
+a:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring) !important;
+}
+/* Inside menus the highlighted row is the focus; an inner accent edge marks it. */
+.popover .launcher-item:focus-visible,
+.popover .menu-item:focus-visible,
+.popover .launcher-manage:focus-visible,
+.popover .launcher-version:focus-visible {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent-hi) 42%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+}
+
+/* ── Page structure ──────────────────────────────────────────── */
+
+.content {
+  max-width: 1180px;
+  padding: 34px 32px 80px;
+}
+.page-heading {
+  margin-bottom: 22px;
+  padding: 0 2px;
+}
+.page-heading h1 {
+  font-size: 32px;
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.03em;
+}
+.page-sub {
+  color: var(--text-2);
+}
+.eyebrow {
+  color: var(--accent-hi);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  font-size: var(--text-xs);
+}
+.section-head {
+  padding: 0 0 10px;
+}
+.section-head h2,
+.platform h2 {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--text-meta);
+}
+.section-link {
+  color: var(--accent-hi);
+  padding: 0;
+  height: auto;
+}
+
+/* Overview: the status reads straight off the atmosphere; one panel holds the work. */
+.hero {
+  gap: 22px;
+  margin-bottom: 8px;
+  padding: 18px 2px 30px;
+}
+.hero::before {
+  inset: -60px auto auto -80px;
+  /* Never wider than the viewport, or the glow widens the page on phones. */
+  width: min(520px, 100vw);
+  height: 260px;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 12%, transparent), transparent);
+}
+.hero-orb {
+  width: 44px;
+  height: 44px;
+  background: color-mix(in srgb, var(--good) 9%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--good) 42%, transparent);
+  color: var(--good);
+}
+.hero-orb .i {
+  width: 22px;
+  height: 22px;
+  stroke-width: 2;
+}
+.tone-bad .hero-orb {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--danger) 45%, transparent);
+  color: var(--danger);
+}
+.tone-pending .hero-orb {
+  background: color-mix(in srgb, var(--warn) 9%, transparent);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--warn) 42%, transparent);
+  color: var(--warn);
+}
+.hero h1 {
+  margin-top: 4px;
+  font-size: 38px;
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.035em;
+  line-height: 1.06;
+}
+.hero-sub {
+  margin-top: 8px;
+  color: var(--text-2);
+  font-size: var(--text-md);
+}
+.attention {
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.attention-row {
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--panel-bg));
+}
+.notice-line {
+  width: auto;
+  height: 34px;
+  margin: -14px 0 18px;
+  padding: 0 10px 0 2px;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--accent-hi);
+}
+.notice-line:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+.notice-line .end {
+  margin-left: 4px;
+}
+.overview-grid {
+  gap: 0;
+  padding: 0;
+}
+.overview-section {
+  padding: 20px 22px 16px;
+}
+.overview-section + .overview-section {
+  border-left: 1px solid var(--hairline);
+}
+.overview-apps {
+  display: grid;
+}
+.overview-app {
+  padding: 12px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+}
+.overview-app + .overview-app {
+  box-shadow: 0 -1px 0 var(--hairline);
+}
+.overview-app:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+/* Application tiles: the module's own icon (manifest `icon`), or a neutral letter tile when it
+   has none or it cannot be loaded. One size and radius per context; the same edge light on all. */
+.monogram {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03));
+  color: var(--text-2);
+  font-weight: var(--weight-semibold);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.monogram.large {
+  border-radius: 13px;
+}
+.monogram.has-icon {
+  overflow: hidden;
+  background: transparent;
+  box-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.55),
+    0 6px 14px -8px rgba(0, 0, 0, 0.7);
+}
+.monogram.has-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.monogram.has-icon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  pointer-events: none;
+}
+.timeline.compact .activity-row {
+  border-radius: 8px;
+}
+.platform {
+  margin-top: 30px;
+  padding: 22px 2px 0;
+  border-top: 1px solid var(--hairline);
+}
+.platform .facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 18px 0;
+  margin-top: 14px;
+}
+.platform .facts > div {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 0 20px;
+  border-left: 1px solid var(--hairline);
+}
+.platform .facts > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.platform .facts dt {
+  color: var(--text-meta);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.platform .facts dd {
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+
+/* Status: a lit dot and a word, no capsule. */
+.status {
+  padding: 0;
+  background: transparent;
+}
+.status-dot {
+  box-shadow: 0 0 8px 0 currentColor;
+}
+.version {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-meta);
+  font-variant-numeric: tabular-nums;
+}
+.tag {
+  border-radius: 6px;
+}
+
+/* Activity */
+.timeline:not(.compact) {
+  padding: 6px;
+}
+.activity-row {
+  border-radius: 8px;
+}
+.activity-row:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+.activity-glyph {
+  color: var(--accent);
+}
+.day-heading {
+  color: var(--text-meta);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+}
+
+/* Modules: one panel, one row per module, hairlines between. */
+.module-list {
+  gap: 0;
+  overflow: hidden;
+}
+.module-row {
+  padding: 16px 20px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.module-row + .module-row {
+  border-top: 1px solid var(--hairline);
+}
+.module-row:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+.module-row.is-selected {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.module-title h3 {
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+}
+
+/* Drawer: a floating lens with open sections. */
+.drawer {
+  top: calc(var(--bar) + 2 * var(--frame) + 6px);
+  right: var(--frame);
+  bottom: var(--frame);
+  width: min(var(--drawer), calc(100vw - 2 * var(--frame)));
+  border-radius: var(--r-float);
+}
+@media (min-width: 1360px) {
+  .drawer {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.14),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 0 0 0.5px rgba(0, 0, 0, 0.7),
+      0 40px 100px -30px rgba(0, 0, 0, 0.85);
+  }
+}
+.drawer-inner {
+  padding: 22px 24px 44px;
+}
+.drawer-title h2 {
+  font-size: 22px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
+}
+.d-section {
+  margin: 0;
+  padding: 18px 0;
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  border-radius: 0;
+  background: transparent;
+}
+.drawer-note {
+  border-radius: 12px;
+}
+
+/* Permissions: a quiet list. */
+.permissions {
+  gap: 2px;
+}
+.permission {
+  padding: 10px 4px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+}
+.permission + .permission {
+  box-shadow: 0 -1px 0 var(--hairline);
+}
+.permission > .i {
+  width: 30px;
+  height: 30px;
+  padding: 7px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 12%, rgba(255, 255, 255, 0.03));
+  color: var(--accent-hi);
+}
+.permission.added {
+  background: var(--warn-soft);
+  box-shadow: inset 2px 0 0 var(--warn);
+  padding-left: 10px;
+}
+
+/* Popovers, menus and the application switcher */
+.popover {
+  border-radius: var(--r-float);
+}
+/* Switcher geometry: the panel hangs 8 px below the bar, its left edge on the bar's left edge,
+   and its icon column (6 px panel padding + 8 px row padding) directly under the trigger's
+   mark, which sits 6 px inside the trigger. The bar's left padding is chosen per mode so that
+   the trigger stands 8 px inside the bar edge; .mast-left spans the bar's full height. */
+.mast-left {
+  align-self: stretch;
+}
+.launcher {
+  top: calc(100% + 8px);
+  left: -8px;
+  width: min(340px, calc(100vw - 2 * var(--frame)));
+  padding: 6px;
+}
+.launcher-head {
+  padding: 6px 8px 8px;
+  color: var(--text-meta);
+}
+.launcher-item,
+.menu-item {
+  border-radius: 11px;
+}
+.launcher-item {
+  gap: 12px;
+  min-height: 50px;
+  padding: 8px;
+}
+.launcher-item .monogram,
+.launcher-glyph,
+.launcher-glyph.nexus,
+.launcher-slot {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-control);
+}
+.launcher-slot {
+  display: grid;
+  place-items: center;
+}
+/* In the bar the SVG itself is the gold tile (6 px padding, a 20 px drawing). In the switcher
+   the tile is a wrapper: it takes no padding and its SVG draws the same 20 px, centred. */
+.launcher-glyph.nexus {
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.launcher-glyph.nexus .nexus-mark {
+  width: 20px;
+  height: 20px;
+}
+.launcher-item .tick {
+  flex: none;
+  margin-left: auto;
+}
+.launcher-item:hover,
+.menu-item:hover,
+.launcher-item:focus-visible {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.035));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+.launcher-item.current {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 15%, rgba(255, 255, 255, 0.03)), color-mix(in srgb, var(--accent) 6%, transparent));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+.launcher-text strong {
+  color: var(--text);
+}
+.launcher-text small {
+  color: var(--text-2);
+}
+.launcher-manage {
+  gap: 12px;
+  margin-top: 6px;
+  padding: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0 0 var(--r-control) var(--r-control);
+  color: var(--text-2);
+}
+.launcher-manage .end {
+  margin-left: auto;
+}
+.launcher-version {
+  padding: 8px;
+  border-radius: var(--r-control);
+  box-shadow: none;
+}
+.notification {
+  border-radius: 11px;
+}
+.notification.unread {
+  background: linear-gradient(100deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent);
+}
+
+/* Dialogs */
+dialog {
+  border-radius: 20px;
+}
+dialog::backdrop {
+  background: rgba(4, 5, 6, 0.55);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+/* The sticky header frosts what scrolls under it, inside the dialog's own glass. */
+.dialog-top {
+  background: linear-gradient(180deg, rgba(16, 15, 13, 0.7), rgba(16, 15, 13, 0.45));
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.dialog-top h2 {
+  font-size: 22px;
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
+}
+.review-identity {
+  padding: 4px 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  border-radius: 0;
+  background: transparent;
+}
+.check-line.consent {
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 12px;
+  background: var(--accent-hover);
+}
+#toast {
+  border-radius: 14px;
+}
+
+/* Settings: one panel, sections divided by hairlines. */
+.settings {
+  gap: 0;
+  padding: 0 28px;
+  border-top: 1px solid var(--hairline);
+}
+.setting-group {
+  padding: 26px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.setting-group + .setting-group {
+  border-top: 1px solid var(--hairline);
+}
+.setting-intro h2 {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+.setting-group .facts > div {
+  padding: 8px 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* Empty, loading and sign-in */
+.empty-state {
+  padding: 48px 32px;
+}
+.empty-state .nexus-mark {
+  filter: drop-shadow(0 0 22px var(--accent-glow));
+}
+.skeleton {
+  border-radius: 8px;
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0.035) 30%, color-mix(in srgb, var(--accent) 10%, rgba(255, 255, 255, 0.05)) 50%, rgba(255, 255, 255, 0.035) 70%);
+  background-size: 300% 100%;
+}
+.loading .nexus-mark,
+.auth-poster .nexus-mark {
+  filter: drop-shadow(0 0 28px var(--accent-glow));
+}
+.auth-poster .nexus-mark {
+  width: 64px;
+  height: 64px;
+}
+.auth-screen {
+  background: transparent;
+}
+.auth-box {
+  padding: 34px 32px 30px;
+  border-radius: 20px;
+}
+.auth-box h1 {
+  font-size: 28px;
+  font-weight: var(--weight-bold);
+  letter-spacing: -0.03em;
+}
+#auth-form button {
+  height: 44px;
+}
+
+/* Application mode: the command bar recedes to a golden edge and reveals as glass. */
+.application-mode .atmosphere {
+  display: none;
+}
+.application-mode .masthead {
+  margin: 0;
+  /* The bar spans the window here; inset the trigger so the switcher keeps a 12 px margin. */
+  padding-left: 20px;
+  border-radius: 0 0 var(--r-float) var(--r-float);
+  background: transparent;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.application-mode .masthead::before {
+  background: var(--lens-sheen), rgba(15, 14, 13, 0.82);
+}
+.application-mode .masthead:hover,
+.application-mode .masthead:focus-within {
+  box-shadow:
+    inset 0 -1px 0 color-mix(in srgb, var(--accent) 30%, transparent),
+    0 22px 60px -24px rgba(0, 0, 0, 0.8);
+}
+
+/* ── Responsive ──────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .overview-section + .overview-section {
+    border-left: 0;
+    border-top: 1px solid var(--hairline);
+  }
+}
+@media (max-width: 860px) {
+  :root {
+    --frame: 8px;
+    --bar: 56px;
+  }
+  .masthead {
+    padding: 0 4px 0 8px;
+    border-radius: 16px;
+  }
+  .nav {
+    margin-left: 0;
+  }
+  .nav a {
+    padding: 0 12px;
+  }
+  .content {
+    padding: 20px 12px 60px;
+  }
+  .hero {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 10px 2px 26px;
+  }
+  .hero-orb {
+    width: 40px;
+    height: 40px;
+  }
+  .hero h1 {
+    font-size: 28px;
+  }
+  .hero .heading-actions {
+    position: absolute;
+    top: 10px;
+    right: 0;
+  }
+  .overview-section {
+    padding: 16px 14px 12px;
+  }
+  .module-row {
+    padding: 14px;
+  }
+  .settings {
+    padding: 0 16px;
+  }
+  .setting-group {
+    padding: 20px 0;
+  }
+  .platform .facts > div:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .drawer {
+    top: calc(var(--bar) + 2 * var(--frame));
+    width: calc(100vw - 2 * var(--frame));
+  }
+}
+
+/* Reduced transparency: every glass layer becomes solid. Kept last so it wins. */
+@media (prefers-reduced-transparency: reduce) {
+  .masthead::before,
+  .popover,
+  .drawer,
+  dialog,
+  #toast,
+  .auth-box,
+  .overview-grid,
+  .module-list,
+  .settings,
+  .timeline:not(.compact),
+  .empty-state {
+    background: var(--surface-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
