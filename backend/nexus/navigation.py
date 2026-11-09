@@ -78,7 +78,9 @@ def add_navigation_routes(app, db, require_owner, audit):
                 "INSERT INTO module_external_origins(module,origin,approved_at) VALUES(?,?,?) ON CONFLICT(module,origin) DO NOTHING",
                 (module_id, origin, datetime.now(timezone.utc).isoformat()),
             )
-            audit(conn, owner["user_id"], "module.external.trusted", module_id)
+            audit(
+                conn, owner.get("actor") or owner["user_id"], "module.external.trusted", module_id
+            )
             return {"module": module_id, "external_origins": trusted_origins(conn, module_id)}
 
     @app.delete("/api/v1/modules/{module_id}/external-origins")
@@ -89,7 +91,12 @@ def add_navigation_routes(app, db, require_owner, audit):
                 (module_id, origin),
             ).rowcount
             if removed:
-                audit(conn, owner["user_id"], "module.external.revoked", module_id)
+                audit(
+                    conn,
+                    owner.get("actor") or owner["user_id"],
+                    "module.external.revoked",
+                    module_id,
+                )
             remaining = trusted_origins(conn, module_id)
         if not removed:
             raise HTTPException(404, "This origin is not trusted for the module")

@@ -102,6 +102,10 @@ def validate_manifest(manifest: dict, allow_example: bool = False) -> dict:
             raise ValueError("The backup contract applies to modules with storage.data")
         if not excludes(manifest, "0.1.2"):
             raise ValueError("The backup contract requires a Nexus range excluding 0.1.2")
+        if manifest["backup"].get("objects") and not excludes(manifest, "0.1.13"):
+            raise ValueError("Backup objects require a Nexus range excluding 0.1.13")
+    if "runtime" in manifest and not excludes(manifest, "0.1.13"):
+        raise ValueError("A runtime memory grant requires a Nexus range excluding 0.1.13")
     if "icon" in manifest and not excludes(manifest, "0.1.7"):
         raise ValueError("An application icon requires a Nexus range excluding 0.1.7")
     return manifest
@@ -112,7 +116,7 @@ def excludes(manifest: dict, version: str) -> bool:
     spec = SpecifierSet(manifest["nexus"])
     return not any(
         Version(old) in spec
-        for old in ("0.1.0", "0.1.1", "0.1.2", "0.1.3", "0.1.4", "0.1.5", "0.1.6", "0.1.7")
+        for old in (f"0.1.{n}" for n in range(14))
         if Version(old) <= Version(version)
     )
 

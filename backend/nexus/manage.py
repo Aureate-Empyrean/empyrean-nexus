@@ -1,11 +1,12 @@
-"""Local Docker-administrator CLI. Credentials never leave this process."""
+"""Local Docker-administrator deployment CLI.
+
+The CLI uses the loopback-only deployment key created by Nexus. It does not create,
+read or use an interactive owner browser session. Credentials never leave this process.
+"""
 
 import argparse
-import hashlib
 import json
 import os
-import secrets
-import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,37 +15,35 @@ import httpx
 
 
 @contextmanager
-def owner_client():
-    """An administrator with direct database access can issue a short-lived session."""
-    db = sqlite3.connect(Path(os.getenv("NEXUS_DATA", "/data")) / "nexus.sqlite3")
-    owners = db.execute("SELECT id FROM users").fetchall()
-    if len(owners) != 1:
-        raise RuntimeError("CLI requires exactly one configured installation owner")
-    token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-    hashed = hashlib.sha256(token.encode()).hexdigest()
-    db.execute(
-        "INSERT INTO sessions VALUES(?,?,?,?)", (hashed, owners[0][0], csrf, int(time.time()) + 300)
-    )
-    db.commit()
+def admin_client():
+    """Use the loopback deployment credential scoped to module lifecycle operations."""
+    data = Path(os.getenv("NEXUS_DATA", "/data"))
+    key_path = Path(os.getenv("NEXUS_ADMIN_KEY_FILE", str(data / "admin-key")))
     try:
-        with httpx.Client(
-            base_url="http://127.0.0.1:12333",
-            cookies={"nexus_session": token},
-            headers={"X-Nexus-CSRF": csrf},
-            timeout=120,
-            trust_env=False,
-        ) as client:
-            yield client
-    finally:
-        db.execute("DELETE FROM sessions WHERE token=?", (hashed,))
-        db.commit()
-        db.close()
+        key = key_path.read_text().strip()
+    except FileNotFoundError as exc:
+        raise RuntimeError("Nexus deployment key is missing; start Nexus once") from exc
+    if len(key) < 32:
+        raise RuntimeError("Nexus deployment key is empty or too short")
+    if os.name == "posix" and key_path.stat().st_mode & 0o077:
+        raise RuntimeError("Nexus deployment key must be readable only by the Nexus user")
+    with httpx.Client(
+        base_url="http://127.0.0.1:12333",
+        headers={
+            "X-Nexus-Admin-Key": key,
+            "X-Nexus-Admin-Client": "nexus.manage",
+        },
+        timeout=120,
+        trust_env=False,
+    ) as client:
+        yield client
 
 
 def maintenance(client, args):
-    """Backup, restore and reconciliation run through the same owner APIs as the dashboard."""
+    """Backup, restore and reconciliation use the scoped deployment API."""
     if args.backup:
-        response = client.post(f"/api/v1/modules/{args.backup}/backups")
+        mode = {"mode": args.backup_mode} if args.backup_mode else None
+        response = client.post(f"/api/v1/modules/{args.backup}/backups", params=mode)
     elif args.restore:
         module_id, backup_id = args.restore
         response = client.post(
@@ -72,6 +71,7 @@ def update(client, manifest, args):
             "grants": manifest["capabilities"],
             "backup_before": args.backup_first,
             "allow_downgrade": args.allow_downgrade,
+            **({"backup_override": args.backup_override} if args.backup_override else {}),
         },
     )
     print(json.dumps(result.json()))
@@ -96,7 +96,13 @@ def main():
         "--backup-first", action="store_true", help="Back up module data before updating"
     )
     parser.add_argument("--allow-downgrade", action="store_true")
+    parser.add_argument(
+        "--backup-override",
+        metavar="REASON",
+        help="Update without the required backup; the reason is recorded (ADR 0021)",
+    )
     parser.add_argument("--backup", metavar="MODULE", help="Create a module backup")
+    parser.add_argument("--backup-mode", choices=["quick", "full"], help="Quick or full, for modules that offer both")
     parser.add_argument("--restore", nargs=2, metavar=("MODULE", "BACKUP_ID"))
     parser.add_argument(
         "--confirm-replace",
@@ -106,12 +112,12 @@ def main():
     parser.add_argument("--reconcile", metavar="MODULE", help="Rebuild outgoing references")
     args = parser.parse_args()
     if args.backup or args.restore or args.reconcile:
-        with owner_client() as client:
+        with admin_client() as client:
             return maintenance(client, args)
     if not args.manifest:
         parser.error("a manifest is required unless --backup, --restore or --reconcile is used")
     manifest = json.loads(args.manifest.read_text())
-    with owner_client() as client:
+    with admin_client() as client:
         if args.update:
             return update(client, manifest, args)
         review = client.post("/api/v1/modules/validate", json=manifest)

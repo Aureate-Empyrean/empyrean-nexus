@@ -62,6 +62,18 @@ MIGRATIONS = [
     CREATE TABLE module_external_origins(module TEXT NOT NULL, origin TEXT NOT NULL,
                                          approved_at TEXT NOT NULL, PRIMARY KEY(module, origin));
     """,
+    """
+    ALTER TABLE sessions ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'legacy';
+    ALTER TABLE sessions ADD COLUMN issued_by TEXT NOT NULL DEFAULT 'legacy';
+    ALTER TABLE sessions ADD COLUMN revoked_at INTEGER;
+    UPDATE sessions SET created_at = expires - 43200 WHERE created_at = 0;
+    """,
+    # ADR 0021: which verified backup preceded an update, or the owner's recorded override.
+    """
+    ALTER TABLE module_updates ADD COLUMN backup_id TEXT;
+    ALTER TABLE module_updates ADD COLUMN backup_override TEXT;
+    """,
 ]
 
 

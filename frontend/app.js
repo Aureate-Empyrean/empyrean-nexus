@@ -108,19 +108,24 @@ function status(module) {
   if (s === 'restoring') return { label: 'Restoring…', tone: 'pending' };
   if (s === 'updating') return { label: 'Updating…', tone: 'pending' };
   if (s === 'error' && h === 'incompatible') return { label: 'Incompatible', tone: 'bad', attention: true, hint: 'This version does not support the running Nexus. Stop it and install a compatible release.' };
+  // Nexus revokes access when a module is not running at startup; nothing failed mid-operation.
+  if (s === 'error' && h === 'unreachable') return { label: 'Unavailable', tone: 'idle', attention: true, unavailable: true, hint: 'It was not running when Nexus started, so Nexus revoked its access until it is started again. Its data is kept.' };
   if (s === 'error') return { label: h === 'restore_failed' ? 'Restore failed' : 'Needs attention', tone: 'bad', attention: true, hint: 'The last lifecycle operation did not finish. Retry it, or stop the module to clean up.' };
   if (s === 'disabled') return { label: 'Stopped', tone: 'idle', hint: 'Not running. Its data is kept.' };
   if (s === 'enabled') {
-    if (h === 'healthy') return { label: 'Running', tone: 'good' };
-    if (h === 'unhealthy') return { label: 'Unhealthy', tone: 'bad', attention: true, hint: 'The module answered its health check with an error.' };
-    if (h === 'unreachable') return { label: 'Not responding', tone: 'bad', attention: true, hint: 'The module did not answer its health check.' };
-    if (h === 'not_verified') return { label: 'Running', tone: 'neutral', hint: 'Health not verified since the last update.' };
-    return { label: 'Running', tone: 'neutral', hint: 'Health not checked yet.' };
+    // Only a recent check counts as proof. `availability` is computed by Nexus from its own
+    // checks; an old recorded result is "unknown", never "running".
+    const a = module.availability ?? (h === 'healthy' ? 'unknown' : h === 'unreachable' ? 'unavailable' : h);
+    const at = module.health_checked_at ? ` Last checked ${clock(module.health_checked_at)}.` : '';
+    if (a === 'available') return { label: 'Running', tone: 'good', running: true, hint: `Answered its health check.${at}` };
+    if (a === 'unhealthy') return { label: 'Unhealthy', tone: 'bad', attention: true, hint: `The module answered its health check with an error.${at}` };
+    if (a === 'unavailable') return { label: 'Unavailable', tone: 'idle', attention: true, unavailable: true, hint: `Nexus cannot reach it. It may have been stopped outside Nexus or be failing; its data is kept.${at}` };
+    return { label: 'Not checked yet', tone: 'neutral', unknown: true, hint: h === 'healthy' ? 'Its last recorded check passed, but there is no recent check. Nexus checks modules automatically.' : 'Nexus has no recent health check for it yet. Modules are checked automatically.' };
   }
   return { label: s, tone: 'idle' };
 }
 const isApplication = m => m.manifest.capabilities.includes('ui.application');
-const canOpen = m => m.state === 'enabled';
+const canOpen = m => m.state === 'enabled' && !status(m).unavailable;
 /** A module's own icon when its manifest declares one; otherwise a neutral letter tile. Nexus
  * serves its validated copy of the icon (owner only, same origin), so the icon stays while the
  * module is stopped, and no external image source is ever loaded. */
@@ -232,7 +237,7 @@ async function api(path, options = {}) {
   });
   const data = await response.json();
   if (!response.ok) {
-    if (response.status === 401 && username) { username = ''; system = null; dialog.close(); auth(false); }
+    if (response.status === 401 && username) { moduleSessions.clear(); username = ''; system = null; dialog.close(); auth(false); }
     throw new Error(typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail));
   }
   return data;
@@ -402,10 +407,26 @@ function auth(setup) {
 
 /* ─────────────── Data and chrome ─────────────── */
 
-async function refresh({ initial = false, changed = null } = {}) {
+// What the screen shows about modules; a background refresh repaints only when it changes.
+let shownSignature = '';
+const moduleSignature = (sys, mods, notes) => JSON.stringify([sys?.version, mods.map(m => [m.id, m.state, m.availability, m.health, m.manifest.version, m.manifest.container?.image]), notes.filter(n => !n.read).length]);
+async function refresh({ initial = false, changed = null, background = false } = {}) {
   const epoch = ++refreshEpoch;
   const data = await Promise.all([api('/system'), api('/modules'), api('/notifications')]);
   if (epoch !== refreshEpoch || !username) return;
+  const signature = moduleSignature(...data);
+  if (background) {
+    const key = m => m && [m.state, m.availability, m.manifest.version, m.manifest.container?.image].join('|');
+    // Never reload an open module frame or repaint under a dialog or menu; nothing changed → no repaint.
+    const viewedSame = view.name === 'module' && key(modules.find(m => m.id === view.id)) === key(data[1].find(m => m.id === view.id));
+    const busy = dialog.open || document.querySelector('.popover:not([hidden])');
+    if (signature === shownSignature || viewedSame || busy) {
+      [system, modules, notices] = data;
+      updateChrome();
+      return;
+    }
+  }
+  shownSignature = signature;
   const before = modules.find(m => m.id === view.id), after = data[1].find(m => m.id === view.id);
   if (navigationEnabled() && before?.state === 'enabled' && isApplication(before) &&
       (after?.state !== 'enabled' || !isApplication(after) ||
@@ -423,6 +444,13 @@ async function refresh({ initial = false, changed = null } = {}) {
     else closeDrawer(false);
   }
 }
+// Module availability changes without a page load: refresh quietly while the tab is visible.
+window.setInterval(() => {
+  if (username && document.visibilityState === 'visible') refresh({ background: true }).catch(() => {});
+}, 20000);
+document.addEventListener('visibilitychange', () => {
+  if (username && document.visibilityState === 'visible') refresh({ background: true }).catch(() => {});
+});
 function hasUpdate() { return system?.update?.status === 'available' && !!system.update.version && system.update.version !== system.version; }
 function updateLabel() {
   if (hasUpdate()) return `Version ${system.update.version} is available`;
@@ -444,7 +472,7 @@ function shell() {
   document.querySelector('#version-button').onclick = () => { closePopovers(); releaseDialog(); };
   document.querySelector('#logout').onclick = async () => {
     const finish = async () => {
-      await api('/auth/logout', { method: 'POST' }); navigation.clearDrafts(); navigation.reset();
+      await api('/auth/logout', { method: 'POST' }); moduleSessions.clear(); navigation.clearDrafts(); navigation.reset();
       username = ''; csrf = ''; system = null; refreshEpoch++; closePopovers(); auth(false);
     };
     try {
@@ -556,14 +584,19 @@ async function renderView({ transition = false, focus = false, changed = null, a
 async function renderOverview(content, epoch) {
   const attention = modules.filter(m => status(m).attention);
   const pending = modules.filter(m => status(m).tone === 'pending');
-  const running = modules.filter(m => m.state === 'enabled');
+  const running = modules.filter(m => status(m).running);
+  const unknown = modules.filter(m => status(m).unknown);
+  const unavailable = attention.filter(m => status(m).unavailable);
   const unread = notices.filter(n => !n.read);
-  const tone = attention.length ? 'bad' : pending.length ? 'pending' : 'good';
+  const onlyUnavailable = attention.length && unavailable.length === attention.length;
+  const tone = attention.length ? (onlyUnavailable ? 'pending' : 'bad') : pending.length || unknown.length ? 'pending' : 'good';
   const headline = !modules.length ? 'Your platform is ready'
-    : attention.length ? `${plural(attention.length, 'module needs', 'modules need')} attention`
-      : pending.length ? `${esc(pending[0].manifest.name)} is ${status(pending[0]).label.replace('…', '').toLowerCase()}`
-        : 'Everything is running normally';
-  const sub = [`Nexus ${esc(system.version)}`, modules.length ? `${running.length} of ${plural(modules.length, 'module', 'modules')} running` : 'No modules installed', `${bytes(system.data_free_bytes)} free for data`].join(' · ');
+    : onlyUnavailable ? (unavailable.length === 1 ? `${esc(unavailable[0].manifest.name)} is unavailable` : `${unavailable.length} modules are unavailable`)
+      : attention.length ? `${plural(attention.length, 'module needs', 'modules need')} attention`
+        : pending.length ? `${esc(pending[0].manifest.name)} is ${status(pending[0]).label.replace('…', '').toLowerCase()}`
+          : unknown.length ? 'Checking module status'
+            : 'Everything is running normally';
+  const sub = [`Nexus ${esc(system.version)}`, modules.length ? `${running.length} of ${plural(modules.length, 'module', 'modules')} running${unavailable.length ? ` · ${unavailable.length} unavailable` : ''}${unknown.length ? ` · ${unknown.length} not checked yet` : ''}` : 'No modules installed', `${bytes(system.data_free_bytes)} free for data`].join(' · ');
   const apps = modules.filter(m => m.state !== 'removing');
   content.innerHTML = `<section class="hero tone-${tone}"><div class="hero-orb" aria-hidden="true">${icon(tone === 'bad' ? 'alert' : tone === 'pending' ? 'refresh' : 'check')}</div><div class="hero-text"><p class="eyebrow">${esc(system.name)}</p><h1 tabindex="-1">${headline}</h1><p class="hero-sub">${sub}</p></div><div class="heading-actions" id="heading-action"></div></section>
     ${attention.length ? `<section class="attention" aria-label="Needs attention">${attention.map(m => `<div class="attention-row" data-module-id="${esc(m.id)}">${monogram(m)}<div class="attention-text"><strong>${esc(m.manifest.name)} · ${esc(status(m).label)}</strong><span>${esc(status(m).hint || '')}</span></div><div class="attention-actions" data-attention="${esc(m.id)}"></div></div>`).join('')}</section>` : ''}
@@ -761,9 +794,15 @@ function renderDrawer() {
     drawer.querySelector('#update-actions').append(action('Review an update…', () => updateDialog(m), '', 'Opening…'));
     loadUpdateHistory(m);
     if (manifest.backup) {
-      const create = action('Back up now', () => createBackup(m), '', 'Backing up…');
+      const create = action(manifest.backup.objects ? 'Full backup' : 'Back up now', () => createBackup(m), '', 'Backing up…');
       create.disabled = m.state !== 'enabled';
       drawer.querySelector('#backup-actions').append(create);
+      if (manifest.backup.objects) {
+        const quick = action('Quick backup', () => createBackup(m, 'quick'), 'quiet', 'Backing up…');
+        quick.disabled = m.state !== 'enabled';
+        quick.title = 'Database and settings only. It does not protect your media files.';
+        drawer.querySelector('#backup-actions').append(quick);
+      }
       if (m.state !== 'enabled') drawer.querySelector('#backup-actions').insertAdjacentHTML('beforeend', '<span class="quiet-text">Start the module to back it up.</span>');
       loadBackups(m);
     }
@@ -783,7 +822,7 @@ async function loadBackups(m) {
     const [backups, restores] = await Promise.all([api(`/modules/${m.id}/backups`), api(`/modules/${m.id}/restores`)]);
     if (!holder || drawerId !== m.id || !holder.isConnected) return;
     const attention = restores.filter(r => r.state === 'needs_attention');
-    holder.innerHTML = `${attention.map(r => `<div class="drawer-note tone-bad" data-restore="${esc(r.id)}"><strong>A restore needs attention</strong> at the ${esc(r.stage)} step: ${esc(r.detail)}. Automatic cleanups stay paused until it is finalized.<div class="d-actions" data-finalize="${esc(r.id)}"></div></div>`).join('')}${backups.length ? `<ol class="mini-list backups">${backups.map(b => `<li data-backup="${esc(b.id)}"><div><strong title="${esc(date(b.exported_at || b.created_at))}">${esc(relative(b.exported_at || b.created_at))}</strong><span class="quiet-text">v${esc(b.module_version)} · ${bytes(b.artifact?.size)}${b.blobs?.length ? ` · ${plural(b.blobs.length, 'file', 'files')}` : ''}</span></div><div class="d-actions" data-backup-actions="${esc(b.id)}"></div></li>`).join('')}</ol>` : '<p class="quiet-text">No backups yet.</p>'}${restores.length ? `<p class="quiet-text">Last restore: ${esc(restores[0].state.replace('_', ' '))} · ${esc(relative(restores[0].updated_at))}</p>` : ''}`;
+    holder.innerHTML = `${attention.map(r => `<div class="drawer-note tone-bad" data-restore="${esc(r.id)}"><strong>A restore needs attention</strong> at the ${esc(r.stage)} step: ${esc(r.detail)}. Automatic cleanups stay paused until it is finalized.<div class="d-actions" data-finalize="${esc(r.id)}"></div></div>`).join('')}${backups.length ? `<ol class="mini-list backups">${backups.map(b => `<li data-backup="${esc(b.id)}"><div><strong title="${esc(date(b.exported_at || b.created_at))}">${esc(relative(b.exported_at || b.created_at))}</strong><span class="quiet-text">v${esc(b.module_version)} · ${b.objects ? `${bytes(b.objects.bytes + b.artifact.size)} in ${plural(b.objects.count, 'file', 'files')}, ${bytes(b.objects.transferred_bytes)} new` : bytes(b.artifact?.size)}${b.blobs?.length ? ` · ${plural(b.blobs.length, 'file', 'files')}` : ''}</span>${b.completeness === 'full' ? '<span class="quiet-text">Full backup: includes the original files</span>' : b.completeness === 'quick' ? '<span class="quiet-text tone-warn">Quick backup: does not include the original files</span>' : ''}</div><div class="d-actions" data-backup-actions="${esc(b.id)}"></div></li>`).join('')}</ol>` : '<p class="quiet-text">No backups yet.</p>'}${restores.length ? `<p class="quiet-text">Last restore: ${esc(restores[0].state.replace('_', ' '))} · ${esc(relative(restores[0].updated_at))}</p>` : ''}`;
     for (const el of holder.querySelectorAll('[data-finalize]')) el.append(action('Finish restore', async () => {
       await api(`/modules/${m.id}/restores/${el.dataset.finalize}/finalize`, { method: 'POST' });
       toast('Restore finished. Automatic cleanups resumed.');
@@ -804,13 +843,13 @@ async function loadBackups(m) {
     }
   } catch (error) { if (holder?.isConnected) holder.innerHTML = `<p class="error-text">${esc(error.message)}</p>`; }
 }
-async function createBackup(m) {
-  const result = await api(`/modules/${m.id}/backups`, { method: 'POST' });
-  toast(`Backed up ${m.manifest.name} (${bytes(result.artifact?.size)}).`);
+async function createBackup(m, mode) {
+  const result = await api(`/modules/${m.id}/backups${mode ? `?mode=${mode}` : ''}`, { method: 'POST' });
+  toast(result.completeness === 'quick' ? `Quick backup of ${m.manifest.name} made. It does not include the original files.` : `Backed up ${m.manifest.name} (${bytes(result.objects ? result.objects.bytes + result.artifact.size : result.artifact?.size)}).`);
   if (drawerId === m.id) loadBackups(m);
 }
 function restoreDialog(m, backup) {
-  modal(`Restore ${m.manifest.name}?`, `<p>This replaces ${esc(m.manifest.name)}'s current data with the backup from <strong>${esc(date(backup.exported_at || backup.created_at))}</strong> (version ${esc(backup.module_version)}). Changes made since then are lost unless you back up first.</p><ul class="plain-list"><li>The module is paused while its data is replaced.</li><li>Automatic cleanups stay paused until the restore is finalized.</li><li>Its links in the reference index are rebuilt from the restored data where the module supports it.</li></ul><label class="check-line"><input type="checkbox" id="confirm-replace"> Replace the current data</label><div class="dialog-actions" id="restore-actions"></div>`);
+  modal(`Restore ${m.manifest.name}?`, `<p>This replaces ${esc(m.manifest.name)}'s current data with the backup from <strong>${esc(date(backup.exported_at || backup.created_at))}</strong> (version ${esc(backup.module_version)}). Changes made since then are lost unless you back up first.</p>${backup.completeness === 'quick' ? '<p class="warning-text">This is a Quick backup. It restores the database and settings only; original files that are no longer on this server cannot be recovered from it.</p>' : ''}<ul class="plain-list"><li>The module is paused while its data is replaced.</li><li>Automatic cleanups stay paused until the restore is finalized.</li><li>Its links in the reference index are rebuilt from the restored data where the module supports it.</li></ul><label class="check-line"><input type="checkbox" id="confirm-replace"> Replace the current data</label><div class="dialog-actions" id="restore-actions"></div>`);
   const context = dialogEpoch;
   dialog.querySelector('#restore-actions').append(action('Cancel', closeDialog, 'quiet'), action('Restore backup', async () => {
     if (!dialog.querySelector('#confirm-replace').checked) throw new Error('Confirm that the current data will be replaced.');
@@ -883,22 +922,28 @@ function updateDialog(m) {
       if (context !== dialogEpoch || text.value !== reviewedText) return;
       const added = diff.capabilities.added, removed = diff.capabilities.removed;
       const direction = diff.downgrade === true ? '<span class="tag bad">Downgrade</span>' : diff.downgrade === null ? '<span class="tag warn">Direction unknown</span>' : '<span class="tag good">Upgrade</span>';
-      const backupText = { recommended: 'A backup before updating is recommended.', unavailable: 'This module can\'t be backed up by Nexus. Back up its data volume another way first if it matters.', not_applicable: 'This module keeps no persistent data.' }[diff.backup];
+      const backupText = { recommended: diff.backup_required ? 'A verified backup is required before this update.' : 'A backup before updating is recommended.', unavailable: 'This module can\'t be backed up by Nexus. Back up its data volume another way first if it matters.', not_applicable: 'This module keeps no persistent data.' }[diff.backup];
       result.innerHTML = `<div class="review"><div class="version-change"><span>v${esc(diff.from_version)}</span>${icon('arrow')}<strong>v${esc(diff.to_version)}</strong>${direction}</div>
         ${added.length ? `<h4 class="attention-heading">${icon('shield')}New permissions it asks for</h4>${capabilityRows(added, { tone: 'added' })}` : '<p class="good-text">No new permissions.</p>'}
         ${removed.length ? `<h4>Permissions it gives up</h4>${capabilityRows(removed, { tone: 'removed' })}` : ''}
         <dl class="facts diff">${diffList('Links it can see', diff.reference_scopes.read)}${diffList('Titles it can look up', diff.reference_scopes.resolve)}${diffList('Item types', diff.resources)}${diff.projections ? diffList('Information it shares', diff.projections.provides) + diffList('Information it reads', diff.projections.read) : ''}${diffList('Events announced', diff.events.produces)}${diffList('Events listened for', diff.events.consumes)}<div class="diff-row"><dt>Container image</dt><dd>${diff.image_changed ? 'Changes' : 'Unchanged'}</dd></div>${diff.port.from !== diff.port.to ? `<div class="diff-row"><dt>Internal port</dt><dd>${esc(diff.port.from)} → ${esc(diff.port.to)}</dd></div>` : ''}${diff.nexus_range.from !== diff.nexus_range.to ? `<div class="diff-row"><dt>Requires Nexus</dt><dd><code>${esc(diff.nexus_range.from)}</code> → <code>${esc(diff.nexus_range.to)}</code></dd></div>` : ''}<div class="diff-row"><dt>Data</dt><dd>${esc(diff.persistent_data === 'none' ? 'No persistent data' : 'Existing data is kept' + (diff.persistent_data.includes('no longer') ? ', but the new version no longer mounts it' : ''))}</dd></div><div class="diff-row"><dt>Migrations</dt><dd>${esc(diff.migrations)}</dd></div><div class="diff-row"><dt>Restart</dt><dd>${m.state === 'disabled' ? 'Stays stopped; health is checked when you start it.' : 'The module restarts and must pass a health check. No automatic rollback.'}</dd></div></dl>
         <p class="quiet-text">${esc(backupText || '')}</p>
         ${diff.backup === 'recommended' ? '<label class="check-line"><input type="checkbox" id="backup-before" checked> Back up before updating (the update stops if the backup fails)</label>' : ''}
+        ${diff.backup_required ? '<div class="override" id="backup-override-box" hidden><label for="backup-override">Reason for updating without a backup</label><input id="backup-override" maxlength="300" placeholder="Recorded in the update history"><p class="quiet-text">Only if you have another copy of this module\'s data, or accept losing it.</p></div>' : ''}
         ${added.length ? '<label class="check-line consent"><input type="checkbox" id="grant-new"> Grant the new permissions listed above</label>' : ''}
         ${diff.downgrade !== false ? `<label class="check-line"><input type="checkbox" id="allow-downgrade"> ${diff.downgrade ? 'I understand data written by the newer version may not be readable' : 'Apply even though the version direction can\'t be determined'}</label>` : ''}
         <div class="dialog-actions" id="apply-update"></div></div>`;
+      const backupBox = dialog.querySelector('#backup-before'), overrideBox = dialog.querySelector('#backup-override-box');
+      if (backupBox && overrideBox) backupBox.addEventListener('change', () => { overrideBox.hidden = backupBox.checked; if (!backupBox.checked) dialog.querySelector('#backup-override').focus(); });
       result.querySelector('#apply-update').append(action(`Update to v${diff.to_version}`, async () => {
         if (added.length && !dialog.querySelector('#grant-new').checked) throw new Error('Grant the new permissions first, or cancel.');
+        const withBackup = !!dialog.querySelector('#backup-before')?.checked;
+        const overrideReason = diff.backup_required && !withBackup ? dialog.querySelector('#backup-override').value.trim() : '';
+        if (diff.backup_required && !withBackup && !overrideReason) throw new Error('Keep the backup, or give a reason for updating without one.');
         if (diff.downgrade !== false && !dialog.querySelector('#allow-downgrade').checked) throw new Error('Confirm the version change first.');
         pendingOps.set(m.id, 'Updating…'); patchModule(m.id);
         try {
-          const outcome = await api(`/modules/${m.id}/update`, { method: 'POST', body: JSON.stringify({ manifest, grants: manifest.capabilities, backup_before: !!dialog.querySelector('#backup-before')?.checked, allow_downgrade: diff.downgrade !== false }) });
+          const outcome = await api(`/modules/${m.id}/update`, { method: 'POST', body: JSON.stringify({ manifest, grants: manifest.capabilities, backup_before: withBackup, allow_downgrade: diff.downgrade !== false, ...(overrideReason ? { backup_override: overrideReason } : {}) }) });
           if (context === dialogEpoch) await closeDialog();
           toast(outcome.state === 'enabled' ? `${m.manifest.name} is now v${diff.to_version} and healthy.` : `${m.manifest.name} is now v${diff.to_version}. Start it to verify its health.`);
         } finally { pendingOps.delete(m.id); await refresh({ changed: m.id }); }
@@ -930,6 +975,14 @@ function uninstallDialog(module) {
 
 function renderModuleView(content, module) {
   if (!module) { content.innerHTML = `<div class="empty-state">${icon('modules', 'empty-glyph')}<h1 tabindex="-1">Module not installed</h1><p>Nothing called “${esc(view.id)}” is installed on this platform.</p><a data-route class="button-link" href="${routes.modules}">Manage modules</a></div>`; return; }
+  if (module.state === 'enabled' && status(module).unavailable) {
+    const s = status(module);
+    content.innerHTML = `<div class="empty-state">${monogram(module, 'large')}<h1 tabindex="-1">${esc(module.manifest.name)} is not responding</h1><p>${statusPill(module)} ${esc(s.hint || '')}</p><div class="heading-actions" id="heading-action"></div></div>`;
+    document.querySelector('#heading-action').append(action('Check again', () => health(module), 'primary', 'Checking…'));
+    const manage = document.createElement('a'); manage.className = 'button-link'; manage.href = routes.modules; manage.dataset.route = ''; manage.textContent = 'Manage modules';
+    document.querySelector('#heading-action').append(manage);
+    return;
+  }
   if (module.state !== 'enabled') {
     const s = status(module);
     content.innerHTML = `<div class="empty-state">${monogram(module, 'large')}<h1 tabindex="-1">${esc(module.manifest.name)} isn't running</h1><p>${statusPill(module)} ${esc(s.hint || '')}</p><div class="heading-actions" id="heading-action"></div></div>`;
@@ -1153,6 +1206,18 @@ function composeMail(module, url, address) {
   });
 }
 
+// A module page runs in an opaque-origin sandbox without storage, so a browser refresh would
+// forget the module's own sign-in. Nexus keeps one short opaque value per module in this
+// tab's sessionStorage (never localStorage): it survives a refresh, ends with the tab and is
+// removed when the owner signs out of Nexus. The module still validates it server-side.
+const moduleSessions = {
+  prefix: 'nexus.module-session.',
+  get(id) { try { return sessionStorage.getItem(this.prefix + id); } catch { return null; } },
+  set(id, value) { try { sessionStorage.setItem(this.prefix + id, value); } catch { /* storage unavailable */ } },
+  remove(id) { try { sessionStorage.removeItem(this.prefix + id); } catch { /* storage unavailable */ } },
+  clear() { try { Object.keys(sessionStorage).filter(k => k.startsWith(this.prefix)).forEach(k => sessionStorage.removeItem(k)); } catch { /* storage unavailable */ } },
+};
+
 // The opaque-origin application can request only its own declared API, never owner APIs.
 window.addEventListener('message', async event => {
   const frame = document.querySelector('#module-application');
@@ -1166,7 +1231,9 @@ window.addEventListener('message', async event => {
     if (message.action === 'navigate') {
       const target=message.module;
       if (target !== 'nexus' && !modules.some(m=>m.id===target && m.state==='enabled')) throw Error('Unknown application');
-      router.navigate(target==='nexus' ? routes.overview : '/app/modules/'+target);
+      const path = message.path;
+      if (path !== undefined && (typeof path !== 'string' || target === 'nexus' || !/^\/[a-zA-Z0-9/_-]*$/.test(path) || path.startsWith('//'))) throw Error('Invalid path');
+      router.navigate(target==='nexus' ? routes.overview : '/app/modules/'+target+(path ? '?path='+encodeURIComponent(path) : ''));
       return;
     }
     if (message.action === 'external') {
@@ -1184,6 +1251,17 @@ window.addEventListener('message', async event => {
       if (dialog.open) throw Error('Nexus is waiting for another decision');
       if (!await trustOrigin(module, url)) throw Error('The site was not trusted');
       return reply({opened:false, trusted:true});
+    }
+    if (message.action === 'session') {
+      if (message.op === 'get') return reply({value: moduleSessions.get(module.id)});
+      if (message.op === 'clear') { moduleSessions.remove(module.id); return reply({stored: false}); }
+      if (message.op === 'set') {
+        const value = message.value;
+        if (typeof value !== 'string' || !/^[!-~]{1,512}$/.test(value)) throw Error('Invalid module session value');
+        moduleSessions.set(module.id, value);
+        return reply({stored: true});
+      }
+      throw Error('Unsupported session operation');
     }
     if (message.action !== 'request') throw Error('Unsupported bridge action');
     const path=message.path, method=message.method || 'GET';

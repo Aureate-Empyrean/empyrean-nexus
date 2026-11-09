@@ -31,13 +31,25 @@ HTTP(S) URL opens directly only if the owner already trusted its exact origin fo
 this module; otherwise Nexus asks the owner to trust the origin and opens nothing,
 answering `{opened:false, trusted:true}` (or an error if refused). mailto opens only
 the reviewed recipient address, never module-supplied fields. Modules own their
-navigation and switcher. See [security model](security-model.md#external-navigation).
+navigation and switcher.
+
+`session` (since Nexus 0.1.12 source, released with 0.1.13; on aetest, not yet in production, whose Nexus is 0.1.11 without it) keeps one opaque value per module in the browser tab's
+`sessionStorage`, because the opaque-origin sandbox has no storage of its own and a
+refresh would otherwise forget a module's own sign-in. `{op:'get'}` answers
+`{value}` (or `null`), `{op:'set', value}` stores 1–512 printable ASCII characters,
+`{op:'clear'}` removes it. The value is scoped to the module ID of the displayed
+frame, ends with the tab, is never put in `localStorage`, and every module session
+value is removed when the owner signs out of Nexus or the Nexus session ends. The
+module must still validate the value server-side; Nexus does not interpret it. Older
+Nexus versions answer `Unsupported bridge action`, so modules must treat the action
+as optional. See [security model](security-model.md#external-navigation).
 
 ### Local navigation-history extension
 
-The current local Nexus + Mnemosyne pilot adds `navigation: {versions:[1]}` to the
-application `context` result when the Nexus process has `NEXUS_NAVIGATION_HISTORY=1`;
-otherwise it reports `{versions:[]}`. This browser context is distinct from the
+Since Nexus 0.1.11 navigation history is enabled by default: the application `context`
+result carries `navigation: {versions:[1]}` unless the Nexus process has
+`NEXUS_NAVIGATION_HISTORY=0` (an internal kill switch), in which case it reports
+`{versions:[]}`. This browser context is distinct from the
 bearer-authenticated `/api/v1/module/context`. No new manifest field or grant is
 required beyond the existing enabled `ui.application` boundary.
 
@@ -45,10 +57,14 @@ The existing `navigate` action still switches module ID only (and does not reply
 on a successful switch). Internal routes use the shared
 `empyrean-navigation-v1` SDK: parent history, challenge/session/revision-bound
 restores, acknowledged checkpoints and prepare-leave handling. Bundle the client
-inline; never relax iframe/CSP restrictions to inspect module state. Only
-Mnemosyne has an adapter today. See the [current contract/adoption guide](navigation-history.md)
+inline; never relax iframe/CSP restrictions to inspect module state. Meridian 0.4.1
+(reported deployed) and Mnemosyne (local tree, not deployed) have adapters; other
+modules keep legacy navigation. See the [current contract/adoption guide](navigation-history.md)
 for feature activation, old-host fallback, URL grammar, frame retention and draft
-security. This is a default-off local implementation, not production deployment.
+security. The host feature is reported deployed in Nexus 0.1.11 (owner confirmed
+Mouse 4 / Back in production; other scenarios unverified there). It is a browser
+bridge extension and says nothing about the future Android Nexus, whose modules are
+separate packages with Nexus-defined IPC (`architecture/modules/nexus.md`).
 
 Locally built images can use immutable Docker image IDs `sha256:<64 hex>` (local
 lookup only); remote images still require repository digests. Tags are not a

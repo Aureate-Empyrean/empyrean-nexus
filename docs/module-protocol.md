@@ -130,14 +130,17 @@ Full applications already use the opaque `ui.application` message bridge describ
 in [application infrastructure](application-infrastructure.md), rather than a
 relaxed same-origin iframe.
 
-## Navigation History pilot (local, default-off)
+## Navigation History (enabled by default since Nexus 0.1.11)
 
 The [shared navigation SDK](navigation-history.md) is a browser bridge extension,
 not a new Module Protocol manifest field, capability or required module dependency.
-The host advertises version 1 through application context only when its process
-has `NEXUS_NAVIGATION_HISTORY=1`. Existing manifests/URLs and the original bridge
-remain valid; modules without an adapter keep legacy behavior. Mnemosyne is the
-first local adapter; no all-module or production migration is claimed.
+The host advertises version 1 through application context unless its process has
+`NEXUS_NAVIGATION_HISTORY=0` (internal kill switch). Existing manifests/URLs and the
+original bridge remain valid; modules without an adapter keep legacy behavior.
+Meridian 0.4.1 is the first deployed adapter and Mnemosyne has a local one; no
+all-module migration is claimed. This is Module Protocol v1 browser behavior; the
+approved future Android module model is described in `architecture/modules/nexus.md`
+and is not part of this protocol.
 
 For adoption, preserve bootstrap paths, provide a domain route codec and legacy
 fallback, bundle the shared client inline, fence async restores, and implement

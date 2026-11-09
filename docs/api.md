@@ -20,7 +20,7 @@ Owner authentication is an HttpOnly SameSite=Strict cookie, valid for 12 hours. 
 | GET, DELETE | `/api/v1/modules/{id}` | Inspect / uninstall with runtime cleanup |
 | POST | `/api/v1/modules/{id}/enable` | Start constrained module container |
 | POST | `/api/v1/modules/{id}/disable` | Revoke token and remove container/network |
-| POST | `/api/v1/modules/{id}/health` | Bounded on-demand health check. The first check after a start retries for up to `NEXUS_FIRST_HEALTH_ATTEMPTS` × 0.5 s (default 10) before reporting a failure |
+| POST | `/api/v1/modules/{id}/health` | Bounded on-demand health check (module views also carry `availability` and `health_checked_at`; see architecture.md, Module availability). The first check after a start retries for up to `NEXUS_FIRST_HEALTH_ATTEMPTS` × 0.5 s (default 10) before reporting a failure |
 | GET/POST/PUT/PATCH/DELETE | `/modules/{id}/{path}` | Authenticated, sandboxed module gateway |
 | GET | `/api/v1/module/context` | Bearer-authenticated module identity and grants |
 | GET, POST | `/api/v1/module/events` | Scoped event polling / publication |
@@ -32,11 +32,11 @@ Owner authentication is an HttpOnly SameSite=Strict cookie, valid for 12 hours. 
 
 Common responses: 401 authentication required, 403 origin/CSRF/capability rejected, 404 missing module, 409 setup/registration/state conflict, 413 body too large, 422 invalid contract, 429 rate limited, 502 runtime/upstream unavailable. Responses never contain a module bearer token. JSON request models reject unknown fields. Ordinary owner request bodies are capped at 64 KiB even without Content-Length; gateway/blob exceptions are described below.
 
-### Browser navigation feature discovery (local pilot)
+### Browser navigation feature discovery
 
 The owner-authenticated `/api/v1/system` includes
-`navigation: {versions:[1]}` only for an actual Nexus process environment of
-`NEXUS_NAVIGATION_HISTORY=1`, otherwise `{versions:[]}`. The application
+`navigation: {versions:[1]}` unless the Nexus process environment sets
+`NEXUS_NAVIGATION_HISTORY=0` (default on since Nexus 0.1.11), in which case it is `{versions:[]}`. The application
 `empyrean-v1` bridge's `context` result forwards that advertisement. This is
 distinct from the bearer-authenticated `/api/v1/module/context`; there is no new
 HTTP navigation/draft endpoint or manifest field. Internal routing/checkpoints

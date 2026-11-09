@@ -17,21 +17,23 @@ Visit http://localhost:12333, supply the claim token, choose an installation nam
 
 After the initial build, `docker compose up -d` is sufficient. There are no mandatory external services. Dependencies/base images must be available for building; remote module images require access from the Docker daemon when first enabled. Module containers themselves do not receive external network access.
 
-## Navigation History: local activation only
+## Navigation History: enabled by default (Nexus 0.1.11)
 
-The current working tree includes a Nexus + Mnemosyne pilot behind
-`NEXUS_NAVIGATION_HISTORY=1`; default is off. It has not been deployed by the
-navigation work or this documentation update. It requires the actual server
-process environment, the matching Nexus frontend/backend and a module adapter.
-It is not a database setting or a module manifest permission.
+Since Nexus 0.1.11 (reported deployed on Exodus 2026-11-07, see
+`DEPLOYMENT_NAVIGATION_2026-11-07.md` in the workspace) the feature is **on by
+default**: the backend treats an unset `NEXUS_NAVIGATION_HISTORY` as enabled, and
+`NEXUS_NAVIGATION_HISTORY=0` is an internal kill switch. It needs the matching Nexus
+frontend/backend and a module adapter (Meridian 0.4.1 is deployed; Mnemosyne's is not).
+It is not a database setting or a module manifest permission. Production verification
+so far is the owner's Mouse 4 / Back check; the other scenarios are open.
 
 The supplied `compose.yaml` does **not** forward this variable and `.env.example`
-does not declare it. A host-shell or `.env` assignment alone will not activate the
-feature inside a container. Any local Compose override, rebuild/recreation and
-activation must be separately reviewed/applied; nothing here changes production
-configuration. See [activation and rollback](navigation-history.md#activation-and-rollback)
-for native use and the override shape, and [validation gates](navigation-history.md#validation-and-remaining-gates)
-before considering production rollout. Save/recover drafts before disabling it.
+does not declare it, so a host-shell or `.env` assignment (including `0`) does not
+reach the container. Using the kill switch requires a separately reviewed Compose
+override, rebuild/recreation and a reload of module UIs; nothing here changes
+production configuration. See [activation and rollback](navigation-history.md#activation-and-rollback)
+and [validation gates](navigation-history.md#validation-and-remaining-gates). Save or
+recover drafts before disabling it.
 
 ## Reference module
 
@@ -65,6 +67,20 @@ Managed module containers and networks are deliberately created outside Compose'
 
 After failed/interrupted lifecycle work, a module remains registered in error. Retry Disable or Uninstall to remove runtime remnants, then enable/install again as needed. The token is revoked during failures; registration and port ownership are retained until cleanup succeeds. Docker image layers are not deleted by uninstall because other installations may use them; use normal operator Docker image maintenance when appropriate.
 
+## Deployment CLI and the admin key
+
+`python -m nexus.manage` no longer creates an owner browser session. On first startup Nexus creates `/data/admin-key` (mode 0600) inside the gateway container. The CLI reads it and sends it only to the loopback listener as `X-Nexus-Admin-Key`; it is accepted only for `/api/v1/modules` deployment and maintenance routes. The key cannot access the browser module gateway, settings, navigation trust, audit export or other owner APIs. Every request is audited as `host-admin:nexus.manage`, and module lifecycle audit rows use that actor.
+
+The key is a deployment service credential, not an owner credential and not a browser session. Do not copy it out of the data volume, place it in Git, or expose it to a module. The CLI refuses a key file readable by group/other. Run deployment commands inside the gateway container, where the key is already protected:
+
+```sh
+docker compose exec -T nexus python -m nexus.manage --backup <module-id>
+```
+
+The owner still signs in interactively for the browser. A host Docker/root administrator remains a trusted root-equivalent boundary and can modify the database directly; application controls do not claim to prevent that. AI agents should run against a disposable installation or a scoped deployment identity, not production Docker.
+
+To rotate the deployment key, stop Nexus, remove `/data/admin-key` from the Nexus data volume, and start Nexus again. The next startup creates a new 0600 key. This is a host-administrator operation and briefly interrupts the gateway only; module data is untouched.
+
 ## Offline backup
 
 There is no backup scheduler or restore UI. Modules that declare the backup contract can be backed up and restored individually through the API or `python -m nexus.manage --backup <id>` / `--restore <id> <backup-id> --confirm-replace` inside the gateway container; see [lifecycle and recovery](lifecycle-and-recovery.md). Those backups live in the Nexus data volume under `backups/modules/` and are not encrypted by Nexus. Settings' JSON export is useful for portability but deliberately excludes authentication secrets and is not directly restorable.
@@ -73,7 +89,7 @@ For a consistent full Nexus backup:
 
 1. Disable modules, then stop Nexus and broker with `docker compose stop`.
 2. Copy the complete Nexus data volume using your normal trusted Docker volume-backup tooling. Include the database and any WAL/SHM files together; never copy just a live SQLite file. Record the application version, configuration and module manifests/image digests alongside the backup.
-3. Protect the backup: it contains password hashes and private metadata. Do not publish `.env` or volume contents.
+3. Protect the backup: it contains password hashes, the loopback deployment key, module tokens and private metadata. Do not publish `.env` or volume contents.
 4. Restart with `docker compose up -d --wait`.
 
 To restore, stop the same installation, restore the full data volume into an empty replacement volume with UID/GID 10001 and private file permissions, and start the same application version first. Test this procedure on a separate host before relying on backups. After restoring older metadata, inspect and reconcile module state carefully; runtime containers are not part of the database backup. No module-domain backups are supported by this reference protocol.

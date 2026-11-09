@@ -361,6 +361,10 @@
       "properties": {
         "version": {
           "const": 1
+        },
+        "objects": {
+          "type": "boolean",
+          "description": "The module's full backups list content-addressed objects that Nexus stores once and shares between backups (Nexus >=0.1.14)."
         }
       },
       "description": "The module implements the backup/restore contract (Nexus >=0.1.3). Requires storage.data."
@@ -412,6 +416,21 @@
               }
             }
           }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "memory_mb"
+      ],
+      "properties": {
+        "memory_mb": {
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 1024,
+          "description": "Memory the container needs, reviewed by the owner (Nexus >=0.1.14). The default is 256."
         }
       }
     }

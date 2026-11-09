@@ -7,7 +7,7 @@ Protect owner identity, metadata, private events, host integrity and separation 
 ## Enforced boundaries
 
 - Setup needs a random 256-bit-ish URL-safe claim secret stored mode 0600 on the local data volume; no default account/password. Setup is atomic and single-owner.
-- Argon2id uses 64 MiB memory, three iterations and two lanes. Password length is 12–128 characters. Session tokens are random, stored as SHA-256 hashes, expire after 12 hours, and are revoked on logout.
+- Argon2id uses 64 MiB memory, three iterations and two lanes. Password length is 12–128 characters. Session tokens are random, stored as SHA-256 hashes, and expire after at most 12 hours. Sessions carry `created_at`, `kind`, `issued_by` and `revoked_at`; the authorization layer rejects expired, malformed, revoked, future-dated and over-age rows. Logout marks the current session revoked. Successful login/setup issuance is recorded by `auth.login`/`setup.completed`, and logout by `auth.logout`.
 - Cookies are HttpOnly/SameSite=Strict and Secure when the configured origin uses HTTPS. Mutations require session-bound CSRF tokens; foreign/null origins are rejected. Explicit proxy headers are not trusted. No permissive CORS.
 - Setup/login have per-peer request limits; modules have token-scoped request limits. One worker is required. These are abuse friction, not DDoS protection; use proxy-level limits for remote deployments. A reverse proxy's IP is intentionally shared unless a future trusted-proxy policy is designed.
 - JSON schemas reject unknown privilege fields. Ports and IDs are validated and unique. SQL is parameterized. Compatibility is checked at install, again by the broker at enable, and at Nexus startup, where an enabled module that no longer supports the running version loses its credentials.
@@ -21,6 +21,16 @@ Protect owner identity, metadata, private events, host integrity and separation 
   2 MiB. Upstream timeout is 5 seconds. No redirects or streaming/WebSocket support.
 - Requested/completed/failed lifecycle actions are audited. Errors revoke module access and retain cleanup state. Notifications show failure rather than fake success.
 
+## Authentication and deployment boundaries
+
+Three identities are distinct:
+
+- **Interactive owner.** The single installation owner signs in at `/api/v1/auth/login` with the owner passphrase. Nexus issues an HttpOnly session cookie and a session-bound CSRF token. The session row records `kind='interactive'`, `issued_by='login'` and its creation time. All owner actions are audited under the owner's user ID.
+- **Deployment service.** The local `nexus.manage` CLI uses a random deployment key stored at `/data/admin-key` (mode 0600), sent only as `X-Nexus-Admin-Key` over loopback (`127.0.0.1`/`::1`). It is accepted only for `/api/v1/modules` deployment and maintenance routes, cannot change navigation trust, and cannot reach the browser module gateway, settings, audit export or other owner APIs. It never creates a browser session or cookie. Each request is audited as `host-admin:nexus.manage`, and module lifecycle audit rows carry that service actor. The CLI refuses a key file readable by group/other.
+- **Host administrator.** Docker/root access is a trusted, root-equivalent boundary. A host administrator can modify the database, containers and backups directly, including inserting sessions or resetting state. Application controls cannot prevent a malicious root-equivalent administrator from doing so. The security requirement is to keep normal deployment on the scoped deployment key, reserve interactive owner sessions for the owner, and make privileged paths attributable wherever possible. AI agents must not receive production Docker/database authority.
+
+The deployment key is local-only; a module, remote client or reverse proxy cannot use it even if it learns the value because the source address is not loopback. Protect `/data`, backups and host access accordingly.
+
 ## Honest limitations
 
 The lifecycle broker controls Docker and is therefore effectively root-equivalent. A Unix socket narrows who can reach it; it does not make a Docker daemon safe to expose. Its directory is mounted only into Nexus and the broker. A successful compromise of either trusted service could exploit this authority. Never mount broker-control or Docker sockets into a module. The trusted broker alone has the documented SELinux `label:disable` exception needed for the daemon socket on enforcing hosts. Nexus and modules retain normal SELinux labeling; the host policy is not disabled. A custom audited broker policy would be a stronger future deployment option.
@@ -29,7 +39,7 @@ Docker containers share the kernel. Internal Docker bridges constrain normal ext
 
 Published module HTTP endpoints are inherently reachable by Nexus on their private network. An image may run arbitrary code inside its container. Digest pinning identifies bytes; it does not authenticate a publisher or make an image safe. Manual publisher metadata is never a verification result. The local example tag is a development exception: a Docker administrator can replace it. Set `NEXUS_ALLOW_EXAMPLE=0` for stricter deployments.
 
-A token is plaintext in its module's Docker environment; Docker admins can inspect it. SQLite and backups are not encrypted by Nexus. Use encrypted host storage and protected backups when required. Logout does not terminate other sessions; there is no account recovery/password rotation interface yet. Operators should not deploy v1 for critical private data until these operational gaps and a broader security review are addressed.
+A token is plaintext in its module's Docker environment; Docker admins can inspect it. SQLite and backups are not encrypted by Nexus. Use encrypted host storage and protected backups when required. Logout revokes only the current session; other sessions are not terminated. There is no browser account-recovery/password-rotation interface yet; a host administrator can recover a lost owner only with direct database/host access, which is inside the trusted root boundary. Operators should not deploy v1 for critical private data until these operational gaps and a broader security review are addressed.
 
 Events are bounded best-effort signals. Subscribers with a granted event type can read every retained event of that type. Ordinary module events have no per-payload policy; internal reference-event delivery additionally checks current reference visibility. No tenant separation or schema registry exists. Notifications and event storage are bounded; audit history is not. Body-size bounds do not prevent all slow-client attacks; terminate remote traffic at a suitably configured reverse proxy.
 
@@ -39,9 +49,9 @@ Health is on demand and represents an HTTP status at that instant. Nexus health 
 
 See [SECURITY.md](../SECURITY.md). Changes to schemas, routing, broker policy, auth and capability enforcement require tests that demonstrate denied behavior, not just the happy path. Do not relax browser sandboxing or add broad mounts to fix module compatibility.
 
-## Navigation history and draft checkpoints (local pilot)
+## Navigation history and draft checkpoints
 
-The default-off [navigation extension](navigation-history.md) does not change HTTP
+The [navigation extension](navigation-history.md) (enabled by default since Nexus 0.1.11) does not change HTTP
 authentication, CSRF, capabilities, the gateway key or opaque iframe sandboxing.
 The host validates the connected enabled application's `contentWindow`, binds
 module identity itself, and uses per-load challenges plus session/revision fences.

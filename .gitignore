@@ -24,3 +24,29 @@ manifest.local.json
 Thumbs.db
 desktop.ini
 
+
+# Credentials and build output
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+dist/
+
+# Secrets, personal data and generated artifacts (P0B)
+originals/
+uploads/
+renditions/
+*.jpg
+*.jpeg
+*.heic
+*.heif
+*.mp4
+*.mov
+*.webm
+*.tar
+*.tar.gz
+*.zip
+*.bak
+*.dump

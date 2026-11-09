@@ -1,6 +1,8 @@
 import hashlib
+import html
 import json
 import os
+import re
 import secrets
 import shutil
 import sqlite3
@@ -18,7 +20,7 @@ import httpx
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.version import Version
@@ -37,10 +39,42 @@ from nexus.updates import add_update_routes
 PASSWORDS = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=2)
 COOKIE = "nexus_session"
 MAX_BODY = 65536
+SESSION_MAX = 12 * 60 * 60
+SESSION_RETENTION = 30 * 24 * 60 * 60
+ADMIN_PATH_PREFIX = "/api/v1/modules"
+LOOPBACK = {"127.0.0.1", "::1"}
+TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{20,200}$")
 
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def actor_of(owner):
+    """Audit actor for an owner session or a host deployment service."""
+    return owner.get("actor") or owner["user_id"]
+
+
+def ensure_admin_key(path: Path) -> str:
+    """Load the loopback deployment key, creating it once with owner-only mode."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if path.exists():
+        key = path.read_text().strip()
+        if len(key) < 32:
+            raise RuntimeError("Nexus admin key is empty or too short")
+    else:
+        key = secrets.token_urlsafe(32)
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            key = path.read_text().strip()
+            if len(key) < 32:
+                raise RuntimeError("Nexus admin key is empty or too short")
+        else:
+            with os.fdopen(fd, "w") as handle:
+                handle.write(key + "\n")
+    os.chmod(path, 0o600)
+    return key
 
 
 def compatible_with_running_nexus(manifest):
@@ -129,9 +163,20 @@ class BodyLimit:
         await self.app(scope, replay, send)
 
 
+UNAVAILABLE_PAGE = (
+    "<!doctype html><meta charset=utf-8><title>{name} is unavailable</title>"
+    "<body style='font:16px system-ui,sans-serif;color:#e8e6e3;background:#121417;margin:0;"
+    "display:grid;place-items:center;min-height:100vh;text-align:center'><div style='max-width:32rem;padding:2rem'>"
+    "<h1 style='font-size:1.4rem;font-weight:600'>{name} is not responding</h1>"
+    "<p style='color:#a9adb3'>Nexus could not reach this module. It may have been stopped outside "
+    "Nexus or be failing. Its data is kept. Check its status in Nexus under Modules.</p></div>"
+)
+
+
 def create_app(data_dir=None, runtime=None, transport=None):
     data = Path(data_dir or os.getenv("NEXUS_DATA", ".data"))
     db = Database(data / "nexus.sqlite3")
+    admin_key = ensure_admin_key(Path(os.getenv("NEXUS_ADMIN_KEY_FILE", str(data / "admin-key"))))
     runtime = runtime or BrokerRuntime(os.getenv("NEXUS_BROKER_SOCKET", "/run/nexus/broker.sock"))
     origin = os.getenv("NEXUS_PUBLIC_ORIGIN", "http://localhost:12333").rstrip("/")
     allowed_origins = {origin}
@@ -169,6 +214,84 @@ def create_app(data_dir=None, runtime=None, transport=None):
             fd = os.open(claim_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
             with os.fdopen(fd, "w") as file:
                 file.write(secrets.token_urlsafe(32))
+
+    # ── Module availability ─────────────────────────────────────────
+    # `modules.health` is the last *recorded* result. Availability is reported only from a
+    # check made by this process within HEALTH_STALE seconds whose result still matches the
+    # record; anything older or unmatched is "unknown", never "running". A background monitor
+    # re-checks enabled modules every HEALTH_INTERVAL seconds (0 disables it, as in tests).
+    health_interval = max(0, int(os.getenv("NEXUS_HEALTH_INTERVAL", "30")))
+    health_stale = max(90, 3 * health_interval)
+    live_health = {}
+    live_lock = threading.Lock()
+
+    def availability(row):
+        state, recorded = row["state"], row["health"]
+        with live_lock:
+            live = live_health.get(row["id"])
+        fresh = bool(live and live["status"] == recorded
+                     and time.time() - live["at"] <= health_stale)  # fmt: skip
+        checked_at = (
+            datetime.fromtimestamp(live["at"], timezone.utc).isoformat(timespec="seconds")
+            if live and live["status"] == recorded
+            else None
+        )
+        if state != "enabled":
+            value = "disabled" if state == "disabled" else "unknown"
+        elif not fresh:
+            value = "unknown"
+        else:
+            value = {"healthy": "available", "unhealthy": "unhealthy"}.get(recorded, "unavailable")
+        return {"availability": value, "health_checked_at": checked_at}
+
+    def check_health(module_id, actor, attempts=1):
+        """Check one module now and record the result (audit and notice on a change)."""
+        row = get_module(module_id)
+        status = "disabled"
+        if row["state"] == "enabled":
+            for attempt in range(attempts):
+                try:
+                    code, _, _ = upstream(
+                        row, "GET", json.loads(row["manifest"])["routes"]["health"]
+                    )
+                    status = "healthy" if code == 200 else "unhealthy"
+                except HTTPException:
+                    status = "unreachable"
+                if status == "healthy" or attempt == attempts - 1:
+                    break
+                time.sleep(0.5)
+        with db.connect() as conn:
+            current = conn.execute(
+                "SELECT state,health FROM modules WHERE id=?", (module_id,)
+            ).fetchone()
+            if not current or (current["state"] != "enabled" and status != "disabled"):
+                return status  # a lifecycle operation started meanwhile; its result wins
+            with live_lock:
+                live_health[module_id] = {"status": status, "at": time.time()}
+            conn.execute("UPDATE modules SET health=? WHERE id=?", (status, module_id))
+            if status != current["health"]:
+                audit(conn, actor, "module.health." + status, module_id)
+                if status == "healthy" and current["health"] in {"unhealthy", "unreachable"}:
+                    notice(conn, "nexus", f"Module {module_id} recovered.")
+            if status in {"unhealthy", "unreachable"} and status != current["health"]:
+                notice(conn, "nexus", f"Module {module_id} is {status}.")
+        return status
+
+    def monitor_pass():
+        with db.connect() as conn:
+            ids = [r[0] for r in conn.execute("SELECT id FROM modules WHERE state='enabled'")]
+        for module_id in ids:
+            try:
+                check_health(module_id, "nexus")
+            except Exception:  # noqa: BLE001 - one module never stops the monitor
+                pass
+
+    monitor_stop = threading.Event()
+
+    def monitor_loop():
+        while not monitor_stop.is_set():
+            monitor_pass()
+            monitor_stop.wait(health_interval)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -220,7 +343,13 @@ def create_app(data_dir=None, runtime=None, transport=None):
                         "nexus",
                         f"Module {row['id']} could not be reconciled after startup. Retry enable or disable.",
                     )
+        monitor = None
+        if health_interval:
+            monitor_stop.clear()
+            monitor = threading.Thread(target=monitor_loop, name="module-health", daemon=True)
+            monitor.start()
         yield
+        monitor_stop.set()
 
     app = FastAPI(
         title="Empyrean Nexus",
@@ -267,18 +396,57 @@ def create_app(data_dir=None, runtime=None, transport=None):
             queue.append(clock)
 
     def require_owner(request: Request):
+        admin_header = request.headers.get("x-nexus-admin-key")
+        if admin_header is not None:
+            if not request.client or request.client.host not in LOOPBACK:
+                raise HTTPException(401, "Deployment key is local-only")
+            if not secrets.compare_digest(admin_header, admin_key):
+                raise HTTPException(401, "Deployment key is invalid")
+            path = request.url.path
+            if not (path == ADMIN_PATH_PREFIX or path.startswith(ADMIN_PATH_PREFIX + "/")):
+                raise HTTPException(403, "Deployment key is limited to module deployment routes")
+            if "/external-origins" in path:
+                raise HTTPException(403, "Deployment key cannot change navigation trust")
+            with db.connect() as conn:
+                owners = conn.execute("SELECT id,username FROM users").fetchall()
+                if len(owners) != 1:
+                    raise HTTPException(503, "Installation owner is not configured")
+                client_name = (
+                    re.sub(
+                        r"[^A-Za-z0-9_.:-]",
+                        "",
+                        request.headers.get("x-nexus-admin-client", "deployment"),
+                    )[:80]
+                    or "deployment"
+                )
+                actor = "host-admin:" + client_name
+                audit(conn, actor, "admin.request", f"{request.method} {path}")
+                owner = owners[0]
+            return {
+                "user_id": owner["id"],
+                "username": owner["username"],
+                "csrf": None,
+                "auth_kind": "admin",
+                "actor": actor,
+            }
+
         token = request.cookies.get(COOKIE, "")
+        if not TOKEN_PATTERN.fullmatch(token):
+            raise HTTPException(401, "Sign in required")
+        now_ts = int(time.time())
         with db.connect() as conn:
             session = conn.execute(
-                "SELECT sessions.*,users.username FROM sessions JOIN users ON users.id=sessions.user_id WHERE token=? AND expires>?",
-                (digest(token), int(time.time())),
+                "SELECT sessions.*,users.username FROM sessions JOIN users ON users.id=sessions.user_id "
+                "WHERE token=? AND expires>? AND revoked_at IS NULL AND created_at>? "
+                "AND created_at<=? AND kind IN ('interactive','legacy')",
+                (digest(token), now_ts, now_ts - SESSION_MAX, now_ts + 60),
             ).fetchone()
         if not session:
             raise HTTPException(401, "Sign in required")
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
             if not secrets.compare_digest(request.headers.get("x-nexus-csrf", ""), session["csrf"]):
                 raise HTTPException(403, "CSRF token required")
-        return dict(session)
+        return {**dict(session), "auth_kind": "owner", "actor": session["user_id"]}
 
     def require_module(request: Request):
         authorization = request.headers.get("authorization", "")
@@ -326,16 +494,22 @@ def create_app(data_dir=None, runtime=None, transport=None):
 
     def session_response(conn, user_id, username):
         token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-        conn.execute("DELETE FROM sessions WHERE expires<=?", (int(time.time()),))
+        created = int(time.time())
+        expires = created + SESSION_MAX
         conn.execute(
-            "INSERT INTO sessions VALUES(?,?,?,?)",
-            (digest(token), user_id, csrf, int(time.time()) + 43200),
+            "DELETE FROM sessions WHERE expires<? OR revoked_at<?",
+            (created - SESSION_RETENTION, created - SESSION_RETENTION),
+        )
+        conn.execute(
+            "INSERT INTO sessions(token,user_id,csrf,expires,created_at,kind,issued_by,revoked_at) "
+            "VALUES(?,?,?,?,?,?,?,NULL)",
+            (digest(token), user_id, csrf, expires, created, "interactive", "login"),
         )
         response = JSONResponse({"username": username, "csrf": csrf})
         response.set_cookie(
             COOKIE,
             token,
-            max_age=43200,
+            max_age=SESSION_MAX,
             httponly=True,
             secure=origin.startswith("https://"),
             samesite="strict",
@@ -401,12 +575,23 @@ def create_app(data_dir=None, runtime=None, transport=None):
 
     @app.get("/api/v1/auth/session")
     def session(owner=Depends(require_owner)):
-        return {"username": owner["username"], "csrf": owner["csrf"]}
+        return {
+            "username": owner["username"],
+            "csrf": owner["csrf"],
+            "auth_kind": owner.get("auth_kind", "owner"),
+        }
 
     @app.post("/api/v1/auth/logout")
     def logout(owner=Depends(require_owner)):
+        if owner.get("auth_kind") == "admin":
+            return {"ok": True}
+        revoked = int(time.time())
         with db.connect() as conn:
-            conn.execute("DELETE FROM sessions WHERE token=?", (owner["token"],))
+            conn.execute(
+                "UPDATE sessions SET revoked_at=?, expires=? WHERE token=? AND revoked_at IS NULL",
+                (revoked, revoked, owner["token"]),
+            )
+            audit(conn, actor_of(owner), "auth.logout", "nexus")
         response = JSONResponse({"ok": True})
         response.delete_cookie(COOKIE, path="/")
         return response
@@ -437,7 +622,9 @@ def create_app(data_dir=None, runtime=None, transport=None):
             "update": {"status": "not_checked", "discovery_supported": False},
             "protocol": 1,
             "development": {"reference_module": allow_example},
-            "navigation": {"versions": [1]} if os.getenv("NEXUS_NAVIGATION_HISTORY") == "1" else {"versions": []},
+            "navigation": {"versions": [1]}
+            if os.getenv("NEXUS_NAVIGATION_HISTORY", "1") != "0"
+            else {"versions": []},
         }
 
     @app.patch("/api/v1/settings")
@@ -452,7 +639,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
                     "INSERT INTO settings(key,value) VALUES('locale',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                     (body.locale,),
                 )
-            audit(conn, owner["user_id"], "settings.changed", "nexus")
+            audit(conn, actor_of(owner), "settings.changed", "nexus")
         return {"ok": True}
 
     @app.get("/api/v1/openapi.json")
@@ -478,6 +665,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
 
     def inspect_row(row):
         result = dict(row)
+        result.update(availability(row))
         result.pop("token", None)
         result.pop("resolver_key", None)
         result["manifest"] = json.loads(result["manifest"])
@@ -552,7 +740,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
                 conn.execute(
                     "INSERT OR IGNORE INTO retained_module_data VALUES(?)", (manifest["id"],)
                 )
-            audit(conn, owner["user_id"], "module.installed", manifest["id"])
+            audit(conn, actor_of(owner), "module.installed", manifest["id"])
         return {"id": manifest["id"], "state": "disabled"}
 
     @app.get("/api/v1/modules")
@@ -591,7 +779,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
                     "UPDATE modules SET state=?,token=NULL,resolver_key=NULL,health='unknown' WHERE id=?",
                     (pending, module_id),
                 )
-                audit(conn, owner["user_id"], f"module.{action}.requested", module_id)
+                audit(conn, actor_of(owner), f"module.{action}.requested", module_id)
             try:
                 runtime.call(action, module_id, json.loads(row["manifest"]), token, resolver_key)
             except RuntimeError as exc:
@@ -605,7 +793,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
                         "nexus",
                         f"Module {module_id}: {action} failed. Inspect the broker and retry disable or uninstall.",
                     )
-                    audit(conn, owner["user_id"], f"module.{action}.failed", module_id)
+                    audit(conn, actor_of(owner), f"module.{action}.failed", module_id)
                 raise HTTPException(502, str(exc)) from exc
             with db.connect() as conn:
                 if action == "uninstall":
@@ -624,7 +812,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
                             module_id,
                         ),
                     )
-                audit(conn, owner["user_id"], f"module.{action}.completed", module_id)
+                audit(conn, actor_of(owner), f"module.{action}.completed", module_id)
             return {
                 "state": {"enable": "enabled", "disable": "disabled", "uninstall": "uninstalled"}[
                     action
@@ -679,35 +867,17 @@ def create_app(data_dir=None, runtime=None, transport=None):
     @app.post("/api/v1/modules/{module_id}/health")
     def module_health(module_id: str, owner=Depends(require_owner)):
         row = get_module(module_id)
-        status = "disabled"
-        if row["state"] == "enabled":
-            # The first check after a start may run before the container listens. Retry it
-            # briefly instead of recording a failure the module never had.
-            attempts = (
-                max(1, int(os.getenv("NEXUS_FIRST_HEALTH_ATTEMPTS", "10")))
-                if row["health"] == "unknown"
-                else 1
-            )
-            for attempt in range(attempts):
-                try:
-                    code, _, _ = upstream(
-                        row, "GET", json.loads(row["manifest"])["routes"]["health"]
-                    )
-                    status = "healthy" if code == 200 else "unhealthy"
-                except HTTPException:
-                    status = "unreachable"
-                if status == "healthy" or attempt == attempts - 1:
-                    break
-                time.sleep(0.5)
-        with db.connect() as conn:
-            conn.execute("UPDATE modules SET health=? WHERE id=?", (status, module_id))
-            if status != row["health"]:
-                audit(conn, owner["user_id"], "module.health." + status, module_id)
-                if status == "healthy" and row["health"] in {"unhealthy", "unreachable"}:
-                    notice(conn, "nexus", f"Module {module_id} recovered.")
-            if status in {"unhealthy", "unreachable"} and status != row["health"]:
-                notice(conn, "nexus", f"Module {module_id} is {status}.")
+        # The first check after a start may run before the container listens. Retry it
+        # briefly instead of recording a failure the module never had.
+        attempts = (
+            max(1, int(os.getenv("NEXUS_FIRST_HEALTH_ATTEMPTS", "10")))
+            if row["health"] == "unknown"
+            else 1
+        )
+        status = check_health(module_id, actor_of(owner), attempts)
         return {"status": status, "checked_at": now()}
+
+    app.state.health_monitor_pass = monitor_pass
 
     @app.api_route(
         "/modules/{module_id}/{path:path}",
@@ -729,13 +899,27 @@ def create_app(data_dir=None, runtime=None, transport=None):
         # Run blocking I/O off the event loop: modules can call Nexus during a gateway request.
         from starlette.concurrency import run_in_threadpool
 
-        code, content_type, content = await run_in_threadpool(
-            upstream,
-            row,
-            request.method,
-            target_path + ("?" + request.url.query if request.url.query else ""),
-            await request.body(),
-        )
+        try:
+            code, content_type, content = await run_in_threadpool(
+                upstream,
+                row,
+                request.method,
+                target_path + ("?" + request.url.query if request.url.query else ""),
+                await request.body(),
+            )
+        except HTTPException as exc:
+            if exc.status_code != 502 or exc.detail != "Module did not respond":
+                raise
+            # Record what was just observed, and answer a page load in words rather than
+            # with a raw proxy error inside the module frame.
+            await run_in_threadpool(check_health, module_id, "nexus")
+            if request.method != "GET" or target_path != routes["ui"]:
+                raise
+            return HTMLResponse(
+                UNAVAILABLE_PAGE.replace("{name}", html.escape(json.loads(row["manifest"])["name"])),
+                status_code=502,
+                headers={"Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'"},
+            )
         # Never forward cookies, redirects, authentication headers, CORS or module CSP.
         if 300 <= code < 400:
             raise HTTPException(502, "Module redirects are not supported in protocol v1")
@@ -897,7 +1081,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
                     edge_json(row) for row in conn.execute("SELECT * FROM resource_references")
                 ],
             }
-            audit(conn, owner["user_id"], "metadata.exported", "nexus")
+            audit(conn, actor_of(owner), "metadata.exported", "nexus")
         return JSONResponse(
             result, headers={"Content-Disposition": 'attachment; filename="nexus-export.json"'}
         )

@@ -1555,6 +1555,21 @@ input[type="checkbox"] {
 .check-line input {
   margin-top: 2px;
 }
+/* Updating without the required backup (ADR 0021): a recorded reason. */
+.override {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--danger, #e5484d) 35%, transparent);
+}
+.override[hidden] {
+  display: none;
+}
+.override .quiet-text {
+  margin: 0;
+}
 .check-line.consent {
   padding: 12px;
   border-radius: 10px;

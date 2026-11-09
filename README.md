@@ -6,17 +6,20 @@ Empyrean Nexus is the small, self-hosted control plane for an open ecosystem of 
 
 ## Status
 
-**0.1.9 foundation / pre-release.** The reference vertical slice implements first-run setup, owner login, a dashboard, manifest review, registration, container enable/disable/removal, health checks, sandboxed routing, event publication/polling, notifications, private-by-default resource references, owner-authorized resolution, backlinks, real Activity, metadata export and opt-in persistent application infrastructure (full-window sandboxed UI, retained module data volumes, shared blobs), in-place module updates with capability review and health verification, a module backup/restore contract, reference reconciliation from module-owned state, the shared Aureate design tokens (module applications may embed fonts), (0.1.5) the reviewable `network.egress` capability and domain-ignorant projection queries between modules, (0.1.6, refined in 0.1.7) the design system 2.1 "command center" interface (`docs/design-language.md`), (0.1.8) module-owned application icons, and (0.1.9) a validated Nexus-owned copy of each icon. This is an initial implementation, not a security-audited production platform.
+**0.1.11 reported in production (2026-11-07); source tree 0.1.14 — foundation / pre-release.** The reference vertical slice implements first-run setup, owner login, a dashboard, manifest review, registration, container enable/disable/removal, health checks, sandboxed routing, event publication/polling, notifications, private-by-default resource references, owner-authorized resolution, backlinks, real Activity, metadata export and opt-in persistent application infrastructure (full-window sandboxed UI, retained module data volumes, shared blobs), in-place module updates with capability review and health verification, a module backup/restore contract, reference reconciliation from module-owned state, the shared Aureate design tokens (module applications may embed fonts), (0.1.5) the reviewable `network.egress` capability and domain-ignorant projection queries between modules, (0.1.6, refined in 0.1.7) the design system 2.1 "command center" interface (`docs/design-language.md`), (0.1.8) module-owned application icons, (0.1.9) a validated Nexus-owned copy of each icon, (0.1.10) honest module availability with a background health monitor, (0.1.11, reported deployed) shared browser navigation history enabled by default, (0.1.12, never released on its own) the optional bridge action `session`, and (0.1.13, source and aetest, not in production) a **verified backup required before every update** of a backup-capable module, with an explicit owner override that is recorded (ADR 0021; `docs/lifecycle-and-recovery.md`). This is an initial implementation, not a security-audited production platform.
+
+**Direction (approved 2026-11-07, not implemented):** Nexus is *AE Core*. The architecture repository records a future Android application model (separate module APKs behind a local Nexus), manual-only updates with a mandatory verified backup before every update, a Nexus Backup Manager with a shared Recovery Engine, optional per-module synchronization and default-deny first-use network authorization; see `architecture/modules/nexus.md` and ADRs 0020–0023. None of this exists in this repository yet, and this README describes only the server implementation.
 
 Nexus is **not** a people database, media library, location tracker, messaging product or calendar. Meridian, Atlas, Mnemosyne, Argus, Hermes, Chronos and Lyra are independent applications; none is implemented here. Nexus has no knowledge of their domain entities.
 
-**Local Navigation History pilot (2026-11-05):** the current working tree includes
-a shared browser-history/deep-link SDK and the first Mnemosyne integration.
-`NEXUS_NAVIGATION_HISTORY=1` must reach the actual Nexus process; default is off.
-The supplied Compose file does not forward the flag, so `.env` alone is insufficient.
-Existing authentication, opaque iframes and legacy module URLs remain in place.
-This is locally implemented/tested, not a production deployment or migration of
-all modules. See [activation, module adoption and limitations](docs/navigation-history.md)
+**Navigation History (0.1.11):** a shared browser-history/deep-link SDK, **enabled by default**
+since 0.1.11; `NEXUS_NAVIGATION_HISTORY=0` is an internal kill switch, and the supplied Compose file
+does not forward the variable, so `.env` alone does not reach the container. Meridian 0.4.1 is the
+first deployed adapter; Mnemosyne has a local adapter that is not deployed; other modules keep
+legacy navigation. Reported deployed 2026-11-07 (workspace `DEPLOYMENT_NAVIGATION_2026-11-07.md`);
+the owner confirmed Mouse 4 / Back in production, other scenarios are not verified there.
+Existing authentication, opaque iframes and legacy module URLs remain in place; this is not a
+migration of all modules. See [activation, module adoption and limitations](docs/navigation-history.md)
 and the [real-app validation record](docs/proposals/navigation-history/PILOT.md).
 
 ## Start with Docker
@@ -88,7 +91,7 @@ Native development can exercise setup, metadata and the UI; real container lifec
 - Persistent module data only through the opt-in `storage.data` volume, which is retained across disable, uninstall and reinstall; uninstall never deletes module data, shared blobs or references.
 - Module UI always runs in an opaque-origin sandbox (full-window with `ui.application`); no WebSockets or streaming proxy.
 - Events are bounded polling, not durable business workflow messaging.
-- Health is checked on demand; no background monitoring scheduler.
+- Module availability comes from recent health checks and a background monitor (0.1.10), replacing the earlier on-demand-only checks.
 - Release URLs and version metadata exist; update discovery and automatic updates do not.
 - Manual manifest source only; source providers can be added without changing runtime contracts.
 - All manual installations are shown as Community/unreviewed; publisher identity is not authenticated.
@@ -101,7 +104,7 @@ Native development can exercise setup, metadata and the UI; real container lifec
 - [Architecture](docs/architecture.md) and [decisions](docs/adr/0001-foundation.md)
 - [Module lifecycle and recovery](docs/lifecycle-and-recovery.md): updates, backup/restore, reference reconciliation
 - [Module protocol](docs/module-protocol.md), [JSON Schema](protocol/module-v1.schema.json), [API](docs/api.md)
-- [Navigation history and deep links](docs/navigation-history.md): default-off local pilot, shared SDK, iframe lifecycle, draft recovery and adoption contract
+- [Navigation history and deep links](docs/navigation-history.md): shared SDK (default on since 0.1.11), iframe lifecycle, draft recovery and adoption contract
 - [Security model](docs/security-model.md), [security reporting](SECURITY.md)
 - [Ports](docs/ports.md), [deployment](docs/deployment.md), [development](docs/development.md)
 - [Contribution guide](CONTRIBUTING.md), [branding policy](docs/branding.md)

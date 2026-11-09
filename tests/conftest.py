@@ -25,6 +25,13 @@ class FakeRuntime:
         return f"http://module-{module_id}:{port}"
 
 
+
+@pytest.fixture(autouse=True)
+def no_background_health_monitor(monkeypatch):
+    """Tests drive health checks explicitly; the monitor thread is tested on its own."""
+    monkeypatch.setenv("NEXUS_HEALTH_INTERVAL", "0")
+
+
 @pytest.fixture
 def manifest():
     return json.loads(Path("examples/example-module/manifest.json").read_text())

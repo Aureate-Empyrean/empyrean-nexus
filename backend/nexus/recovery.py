@@ -44,6 +44,9 @@ def sha256_file(path):
     return hasher.hexdigest(), size
 
 
+HEX = re.compile(r"^[0-9a-f]{64}$")
+
+
 def backup_metadata(row, headers, artifact_sha, artifact_size, blobs):
     """Validate module-declared metadata; Nexus never interprets the artifact itself."""
     manifest = json.loads(row["manifest"])
@@ -79,6 +82,8 @@ def backup_metadata(row, headers, artifact_sha, artifact_size, blobs):
         "nexus_version": VERSION,
         "artifact": {"sha256": artifact_sha, "size": artifact_size},
         "blobs": blobs,
+        # "full" or "quick" when the module says so; separate from whether the backup succeeded.
+        "completeness": value.get("completeness") if value.get("completeness") in ("full", "quick") else None,
     }
 
 
@@ -126,9 +131,77 @@ def add_recovery_routes(app, ctx):
         if row["state"] != "enabled" or not row["resolver_key"]:
             raise HTTPException(409, "The module must be enabled")
 
-    def create_backup(row, actor):
-        """Caller holds the lifecycle lock. Nothing is recorded unless every part is complete."""
+    def objects_dir(module_id):
+        return ctx.data / "backups" / "objects" / module_id
+
+    def object_path(module_id, sha):
+        if not HEX.fullmatch(sha or ""):
+            raise RecoveryError("Invalid object name")
+        return objects_dir(module_id) / sha[:2] / sha
+
+    def fetch_objects(row, token, target):
+        """Store what the module lists, once: an object already held is not transferred again."""
+        try:
+            with httpx.Client(transport=ctx.transport, timeout=300, follow_redirects=False, trust_env=False) as client:
+                base = ctx.runtime.target(row["id"], row["port"])
+                key = {"X-Nexus-Resolver-Key": row["resolver_key"]}
+                listing = client.get(base + "/empyrean/v1/backup/objects", params={"export": token}, headers=key)
+                if listing.status_code != 200:
+                    raise RecoveryError(f"Module answered HTTP {listing.status_code} listing its objects")
+                wanted = listing.json()["objects"]
+                transferred = sent = 0
+                for item in wanted:
+                    sha, size = item["sha256"], int(item["size"])
+                    path = object_path(row["id"], sha)
+                    if path.exists() and path.stat().st_size == size:
+                        continue
+                    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                    temp = path.parent / f".{sha}.{uuid.uuid4().hex}"
+                    try:
+                        hasher = hashlib.sha256()
+                        with client.stream("GET", base + f"/empyrean/v1/backup/object/{sha}", headers=key) as response:
+                            if response.status_code != 200:
+                                raise RecoveryError(f"Module could not provide object {sha[:12]}")
+                            with open(temp, "wb") as out:
+                                for chunk in response.iter_bytes():
+                                    hasher.update(chunk)
+                                    out.write(chunk)
+                                out.flush()
+                                os.fsync(out.fileno())
+                        if hasher.hexdigest() != sha:
+                            raise RecoveryError(f"Object {sha[:12]} did not match its digest")
+                        os.chmod(temp, 0o440)
+                        os.replace(temp, path)
+                        transferred += 1
+                        sent += size
+                    finally:
+                        temp.unlink(missing_ok=True)
+        except httpx.HTTPError as exc:
+            raise RecoveryError("Module did not respond while providing objects") from exc
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RecoveryError("Module object list is invalid") from exc
+        (target / "objects.json").write_text(json.dumps(wanted))
+        return {
+            "count": len(wanted),
+            "bytes": sum(int(i["size"]) for i in wanted),
+            "transferred": transferred,
+            "transferred_bytes": sent,
+        }
+
+    def stored_objects(metadata):
+        if not metadata.get("objects"):
+            return []
+        return json.loads((directory(metadata["module"], metadata["id"]) / "objects.json").read_text())
+
+    def create_backup(row, actor, verify=False, mode=None):
+        """Caller holds the lifecycle lock. Nothing is recorded unless every part is complete.
+        With verify, the stored artifact is re-read against its hash and offered to the
+        module's own validation before the backup counts (pre-update backups, ADR 0021)."""
         require_running_participant(row)
+        uses_objects = bool(json.loads(row["manifest"]).get("backup", {}).get("objects"))
+        if mode and not uses_objects:
+            raise HTTPException(422, "This module has one kind of backup")
+        mode = (mode or "full") if uses_objects else None
         backup_id = str(uuid.uuid4())
         target = directory(row["id"], backup_id)
         target.mkdir(parents=True, mode=0o700)
@@ -141,7 +214,10 @@ def add_recovery_routes(app, ctx):
                     with client.stream(
                         "POST",
                         ctx.runtime.target(row["id"], row["port"]) + "/empyrean/v1/backup/export",
-                        headers={"X-Nexus-Resolver-Key": row["resolver_key"]},
+                        headers={
+                            "X-Nexus-Resolver-Key": row["resolver_key"],
+                            **({HEADER + "Mode": mode} if mode else {}),
+                        },
                     ) as response:
                         if response.status_code != 200:
                             raise RecoveryError(f"Module answered HTTP {response.status_code}")
@@ -175,7 +251,19 @@ def add_recovery_routes(app, ctx):
                 blobs.append({"sha256": digest, "size": (target / "blobs" / digest).stat().st_size})
             metadata = backup_metadata(row, headers, hasher.hexdigest(), size, blobs)
             metadata["id"] = backup_id
+            if uses_objects:
+                # A backup never counts as full unless the originals are in the recoverable set.
+                if metadata["completeness"] != mode:
+                    raise RecoveryError(f"Module did not produce a {mode} backup")
+                if mode == "full":
+                    lowered = {k.lower(): v for k, v in headers.items()}
+                    token = lowered.get(HEADER.lower() + "objects", "")
+                    if not token:
+                        raise RecoveryError("Module did not list the objects of its full backup")
+                    metadata["objects"] = fetch_objects(row, token, target)
             metadata["exported_at"] = ctx.now()
+            if verify:
+                validate_artifact(row, metadata, target)
             (target / "metadata.json").write_text(json.dumps(metadata, indent=2))
             with ctx.db.connect() as conn:
                 conn.execute(
@@ -190,6 +278,32 @@ def add_recovery_routes(app, ctx):
                 ctx.audit(conn, actor, "module.backup.failed", row["id"])
                 ctx.notice(conn, "nexus", f"Backup of module {row['id']} failed: {exc}")
             raise HTTPException(502, "Backup failed: " + str(exc)) from exc
+
+    def validate_artifact(row, metadata, target):
+        """Re-read the artifact and blobs against their hashes, then let the module confirm it
+        could restore the artifact. Raises RecoveryError; module data is never touched."""
+        artifact = target / "artifact"
+        if sha256_file(artifact) != (metadata["artifact"]["sha256"], metadata["artifact"]["size"]):
+            raise RecoveryError("The stored backup does not match what the module exported")
+        for blob in metadata["blobs"]:
+            if sha256_file(target / "blobs" / blob["sha256"])[0] != blob["sha256"]:
+                raise RecoveryError("A backed-up shared file does not match its hash")
+        if metadata.get("objects"):
+            for item in json.loads((target / "objects.json").read_text()):
+                if sha256_file(object_path(metadata["module"], item["sha256"]))[0] != item["sha256"]:
+                    raise RecoveryError("A backed-up object does not match its hash")
+        headers = {
+            "Content-Type": "application/octet-stream",
+            HEADER + "Module": metadata["module"],
+            HEADER + "Module-Version": metadata["module_version"],
+            HEADER + "Format": metadata["module_format"],
+            HEADER + "Format-Version": str(metadata["module_format_version"]),
+            HEADER + "Created-At": metadata["created_at"],
+            **({HEADER + "Completeness": metadata["completeness"]} if metadata.get("completeness") else {}),
+        }
+        with open(artifact, "rb") as body:
+            if call(row, "/empyrean/v1/backup/validate", body, headers).get("valid") is not True:
+                raise RecoveryError("The module did not confirm the backup is valid")
 
     def load_backup(module_id, backup_id):
         with ctx.db.connect() as conn:
@@ -213,6 +327,10 @@ def add_recovery_routes(app, ctx):
             path = target / "blobs" / blob["sha256"]
             if not path.exists() or sha256_file(path)[0] != blob["sha256"]:
                 raise HTTPException(409, "A backed-up shared file is damaged; nothing was changed")
+        for item in stored_objects(metadata):
+            path = object_path(metadata["module"], item["sha256"])
+            if not path.exists() or sha256_file(path)[0] != item["sha256"]:
+                raise HTTPException(409, "A backed-up object is damaged or missing; nothing was changed")
         return artifact
 
     def job(conn, job_id, state, stage, detail=""):
@@ -289,6 +407,7 @@ def add_recovery_routes(app, ctx):
             HEADER + "Format": metadata["module_format"],
             HEADER + "Format-Version": str(metadata["module_format_version"]),
             HEADER + "Created-At": metadata["created_at"],
+            **({HEADER + "Completeness": metadata["completeness"]} if metadata.get("completeness") else {}),
         }
         job_id = str(uuid.uuid4())
         with ctx.db.connect() as conn:
@@ -312,6 +431,23 @@ def add_recovery_routes(app, ctx):
                 job(conn, job_id, "failed", "validate", str(exc))
                 ctx.audit(conn, actor, "module.restore.failed", row["id"])
             raise HTTPException(422, "The module rejected the backup; nothing was changed") from exc
+        # Objects are content-addressed and only added, so a failure here changes nothing.
+        try:
+            wanted = stored_objects(metadata)
+            if wanted:
+                with ctx.db.connect() as conn:
+                    job(conn, job_id, "running", "objects")
+                body = json.dumps({"objects": wanted}).encode()
+                missing = call(row, "/empyrean/v1/backup/objects/missing", body, {"Content-Type": "application/json"})["missing"]
+                for sha in missing:
+                    with open(object_path(row["id"], sha), "rb") as content:
+                        call(row, f"/empyrean/v1/backup/object/{sha}", content, {"Content-Type": "application/octet-stream"})
+        except (RecoveryError, KeyError, TypeError, OSError) as exc:
+            with ctx.db.connect() as conn:
+                conn.execute("UPDATE modules SET state='enabled' WHERE id=?", (row["id"],))
+                job(conn, job_id, "failed", "objects", str(exc))
+                ctx.audit(conn, actor, "module.restore.failed", row["id"])
+            raise HTTPException(502, "Backed-up objects could not be returned; module data was not changed") from exc
         with ctx.db.connect() as conn:
             job(conn, job_id, "running", "blobs")
         # Shared files are only ever added, never removed, so this step is safe to repeat.
@@ -370,9 +506,11 @@ def add_recovery_routes(app, ctx):
         return finish(row["id"], job_id, actor)
 
     @app.post("/api/v1/modules/{module_id}/backups", status_code=201)
-    def create(module_id: str, owner=Depends(ctx.require_owner)):
+    def create(module_id: str, mode: str | None = None, owner=Depends(ctx.require_owner)):
+        if mode not in (None, "quick", "full"):
+            raise HTTPException(422, "Unknown backup mode")
         with ctx.lock:
-            return create_backup(module(module_id), owner["user_id"])
+            return create_backup(module(module_id), owner.get("actor") or owner["user_id"], mode=mode)
 
     @app.get("/api/v1/modules/{module_id}/backups")
     def backups(module_id: str, owner=Depends(ctx.require_owner)):
@@ -397,8 +535,14 @@ def add_recovery_routes(app, ctx):
             archive.add(source / "artifact", "artifact")
             for blob in metadata["blobs"]:
                 archive.add(source / "blobs" / blob["sha256"], "blobs/" + blob["sha256"])
+            if metadata.get("objects"):
+                archive.add(source / "objects.json", "objects.json")
+                for item in stored_objects(metadata):
+                    archive.add(object_path(module_id, item["sha256"]), "objects/" + item["sha256"])
         with ctx.db.connect() as conn:
-            ctx.audit(conn, owner["user_id"], "module.backup.exported", module_id)
+            ctx.audit(
+                conn, owner.get("actor") or owner["user_id"], "module.backup.exported", module_id
+            )
         return FileResponse(
             bundle,
             media_type="application/x-tar",
@@ -415,7 +559,7 @@ def add_recovery_routes(app, ctx):
                 422, "Restoring replaces the module's current data; confirm_replace is required"
             )
         with ctx.lock:
-            return restore(module(module_id), backup_id, owner["user_id"])
+            return restore(module(module_id), backup_id, owner.get("actor") or owner["user_id"])
 
     @app.get("/api/v1/modules/{module_id}/restores")
     def restores(module_id: str, owner=Depends(ctx.require_owner)):
@@ -446,7 +590,7 @@ def add_recovery_routes(app, ctx):
                 )
             if module(module_id)["state"] != "enabled":
                 raise HTTPException(409, "The module must be enabled")
-            return finish(module_id, job_id, owner["user_id"])
+            return finish(module_id, job_id, owner.get("actor") or owner["user_id"])
 
     @app.post("/api/v1/modules/{module_id}/references/reconcile")
     def reconcile(module_id: str, owner=Depends(ctx.require_owner)):
@@ -456,12 +600,22 @@ def add_recovery_routes(app, ctx):
                 summary = reconcile_outgoing(ctx.db, ctx.runtime, ctx.transport, module_id)
             except ReconcileError as exc:
                 with ctx.db.connect() as conn:
-                    ctx.audit(conn, owner["user_id"], "module.references.failed", module_id)
+                    ctx.audit(
+                        conn,
+                        owner.get("actor") or owner["user_id"],
+                        "module.references.failed",
+                        module_id,
+                    )
                 raise HTTPException(
                     502, "Reconciliation failed; the index was not changed: " + str(exc)
                 ) from exc
             with ctx.db.connect() as conn:
-                ctx.audit(conn, owner["user_id"], "module.references.reconciled", module_id)
+                ctx.audit(
+                    conn,
+                    owner.get("actor") or owner["user_id"],
+                    "module.references.reconciled",
+                    module_id,
+                )
             return {"module": module_id, **summary}
 
     return create_backup

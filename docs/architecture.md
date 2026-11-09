@@ -6,9 +6,10 @@ Nexus owns platform metadata, not module domain data. V1 supports a single owner
 operating separate module containers without domain-specific Nexus code. Opt-in
 `ui.application`, `storage.data` and blob capabilities already implement persistent
 full applications through the [application infrastructure extension](application-infrastructure.md).
-The [local Navigation History pilot](navigation-history.md) adds host-owned URL/history
-coordination while modules keep their route codecs and UX. It is default-off and
-does not establish a production rollout or move domain authority into Nexus.
+[Navigation History](navigation-history.md) adds host-owned URL/history
+coordination while modules keep their route codecs and UX. It is enabled by default
+since Nexus 0.1.11 (kill switch `NEXUS_NAVIGATION_HISTORY=0`), is reported deployed
+with the Meridian 0.4.1 adapter, and does not move domain authority into Nexus.
 
 ## Repository map
 
@@ -21,7 +22,7 @@ does not establish a production rollout or move domain authority into Nexus.
 | `backend/broker/app.py` | Fixed-policy Docker operations |
 | `frontend/` | Static first-run, dashboard and management interface |
 | `frontend/router.js`, `frontend/navigation-protocol.js` | Shell/envelope routing and shared opt-in host/client navigation SDK |
-| `scripts/sync-navigation.mjs` | Build-time SDK copy/check for the Mnemosyne pilot; no runtime sibling dependency |
+| `scripts/sync-navigation.mjs` | Build-time SDK copy/check for the Mnemosyne and Meridian adapters; no runtime sibling dependency |
 | `protocol/` | Machine-readable, versioned module schema |
 | `examples/example-module/` | Independently running reference module |
 | `deploy/`, `compose.yaml` | Container builds and topology |
@@ -66,7 +67,7 @@ V1 source ingestion is manual JSON. The source record is distinct from publisher
 
 ## UI and compatibility
 
-Shell views already use the History API. With `NEXUS_NAVIGATION_HISTORY=1`, enabled
+Shell views already use the History API. Unless `NEXUS_NAVIGATION_HISTORY=0`, enabled
 participating applications can also update the parent URL through a separate
 versioned message channel. `path` remains the iframe HTTP bootstrap path; additive
 `nav=1&route=...` describes internal module state. Same module/path/version/image
@@ -87,3 +88,26 @@ The [ecosystem architecture](https://github.com/Aureate-Empyrean/architecture) i
 A relation does not reveal itself to a target owner automatically. It has a creator-controlled reader list, and query scopes alone do not bypass that list. Nexus stores relationships, not domain objects; resolutions are bounded and uncached. Uninstalled/disabled targets remain representable. Existing identities with retained relationships require explicit reuse confirmation on reinstall. Sensitive modules can opt out of indexing entirely; this normal metadata index is not a protected vault.
 
 The shell routes Overview, Modules, Activity, Settings and module views through the History API. Activity adapts actual audit data; no parallel activity database is created. Notifications use a transient panel, Settings and the account are masthead utilities, and the application launcher is separate from Nexus navigation. See [control center experience](ui.md).
+
+## Module availability (0.1.10)
+
+`modules.health` stores the last recorded check result. It is not proof that a module runs
+now. The API adds `availability` and `health_checked_at` to every module:
+
+| `availability` | Meaning |
+|---|---|
+| `available` | This Nexus process checked the module within the last 90 s (3 × the interval) and it answered 200 |
+| `unhealthy` | A recent check got an error answer |
+| `unavailable` | A recent check could not reach it (connection refused, timeout) |
+| `unknown` | No recent check by this process, or the record changed since (after a restart, an update, a lifecycle step); never shown as running |
+| `disabled` | The module is stopped through Nexus |
+
+A background monitor checks every enabled module every `NEXUS_HEALTH_INTERVAL` seconds (default
+30; `0` disables it) starting at Nexus startup; manual checks and a failed module page load
+record a result too. Transitions are audited and notified. Nexus cannot tell an intentional
+stop outside Nexus from an outage, so it reports "Unavailable". A module that was not running
+when Nexus started keeps the existing behaviour (state `error`, health `unreachable`,
+credentials revoked until it is started again); the dashboard shows it as "Unavailable" too.
+The dashboard counts only `available` modules as running, never says "Everything is running
+normally" while a module is unavailable or unchecked, hides "Open" for unavailable modules,
+explains them in words, and refreshes quietly every 20 s while visible.

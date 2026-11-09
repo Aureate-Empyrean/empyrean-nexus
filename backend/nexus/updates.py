@@ -20,6 +20,17 @@ class UpdateBody(BaseModel):
     grants: list[str] = Field(max_length=10)
     backup_before: bool = False
     allow_downgrade: bool = False
+    # The owner's reason for updating a backup-capable module without a verified backup. Only
+    # accepted where a Nexus backup exists for the module; recorded in the update history, the
+    # audit log and a notification.
+    backup_override: str | None = Field(default=None, max_length=300)
+
+
+def backup_required(diff):
+    """ADR 0021: a verified backup precedes every update of a backup-capable persistent module.
+    NEXUS_UPDATE_BACKUP=recommend restores the older, optional behavior for an installation."""
+    policy = os.getenv("NEXUS_UPDATE_BACKUP", "require")
+    return policy != "recommend" and diff["backup"] == "recommended"
 
 
 def _set_diff(old, new):
@@ -91,6 +102,10 @@ def review(old, new):
         "image_changed": old["container"]["image"] != new["container"]["image"],
         "port": {"from": old["container"]["port"], "to": new["container"]["port"]},
         "nexus_range": {"from": old["nexus"], "to": new["nexus"]},
+        "memory_mb": {
+            "from": old.get("runtime", {}).get("memory_mb", 256),
+            "to": new.get("runtime", {}).get("memory_mb", 256),
+        },
         "capabilities": _set_diff(old["capabilities"], new["capabilities"]),
         "events": {
             "produces": _set_diff(old["events"]["produces"], new["events"]["produces"]),
@@ -146,20 +161,25 @@ def add_update_routes(app, ctx, create_backup):
     def update_review(module_id: str, manifest: dict, owner=Depends(ctx.require_owner)):
         row = module(module_id)
         _, _, diff = prepare(row, manifest)
-        return {**diff, "state": row["state"], "requires_approval": diff["capabilities"]["added"]}
+        return {
+            **diff,
+            "state": row["state"],
+            "requires_approval": diff["capabilities"]["added"],
+            "backup_required": backup_required(diff),
+        }
 
     @app.get("/api/v1/modules/{module_id}/updates")
     def updates(module_id: str, owner=Depends(ctx.require_owner)):
         with ctx.db.connect() as conn:
             rows = conn.execute(
-                "SELECT id,module,from_version,to_version,state,stage,detail,started_at,updated_at FROM module_updates WHERE module=? ORDER BY started_at DESC",
+                "SELECT id,module,from_version,to_version,state,stage,detail,backup_id,backup_override,started_at,updated_at FROM module_updates WHERE module=? ORDER BY started_at DESC",
                 (module_id,),
             )
             return [dict(r) for r in rows]
 
     @app.post("/api/v1/modules/{module_id}/update")
     def apply(module_id: str, body: UpdateBody, owner=Depends(ctx.require_owner)):
-        actor = owner["user_id"]
+        actor = owner.get("actor") or owner["user_id"]
         with ctx.lock:
             row = module(module_id)
             if row["state"] not in {"enabled", "disabled", "error"}:
@@ -179,19 +199,39 @@ def add_update_routes(app, ctx, create_backup):
                     if diff["downgrade"]
                     else "The installed version is not SemVer, so the update direction is unknown; confirm allow_downgrade.",
                 )
-            required = os.getenv("NEXUS_UPDATE_BACKUP", "recommend") == "require"
+            required = backup_required(diff)
+            override = " ".join((body.backup_override or "").split()) or None
+            if override and body.backup_before:
+                raise HTTPException(422, "Choose a backup or an override reason, not both")
+            if override and diff["backup"] != "recommended":
+                raise HTTPException(422, "This module has no Nexus backup to override")
+            backup_id = None
             if body.backup_before:
                 if diff["backup"] != "recommended":
                     raise HTTPException(422, "This module cannot create a backup")
-                create_backup(row, actor)  # Raises on failure: nothing below runs.
-            elif required and diff["backup"] == "recommended":
+                try:
+                    # Exported, hashed, re-read and accepted by the module's own validation;
+                    # raises on any failure, so nothing below runs.
+                    backup_id = create_backup(row, actor, verify=True)["id"]
+                except HTTPException as exc:
+                    hint = (
+                        "; to update without a backup, give an override reason (it is recorded)."
+                        if required
+                        else "."
+                    )
+                    raise HTTPException(
+                        exc.status_code, f"{exc.detail}. The update was not started{hint}"
+                    ) from exc
+            elif required and not override:
                 raise HTTPException(
-                    409, "This installation requires a backup before updating persistent modules"
+                    409,
+                    "A verified backup is required before updating this module. Back up first, "
+                    "or give an override reason (it is recorded).",
                 )
             update_id = str(uuid.uuid4())
             with ctx.db.connect() as conn:
                 conn.execute(
-                    "INSERT INTO module_updates(id,module,from_version,to_version,from_manifest,to_manifest,state,stage,detail,started_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO module_updates(id,module,from_version,to_version,from_manifest,to_manifest,state,stage,detail,backup_id,backup_override,started_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (
                         update_id,
                         module_id,
@@ -202,11 +242,21 @@ def add_update_routes(app, ctx, create_backup):
                         "applying",
                         "prepare",
                         "",
+                        backup_id,
+                        override,
                         ctx.now(),
                         ctx.now(),
                     ),
                 )
                 ctx.audit(conn, actor, "module.update.requested", module_id)
+                if override:
+                    ctx.audit(conn, actor, "module.update.backup_overridden", module_id)
+                    ctx.notice(
+                        conn,
+                        "nexus",
+                        f"Update of {module_id} to v{new['version']} proceeds without a backup "
+                        f"(owner override: {override}).",
+                    )
             start = row["state"] in {"enabled", "error"}
             with ctx.db.connect() as conn:
                 taken = conn.execute(
@@ -239,9 +289,19 @@ def add_update_routes(app, ctx, create_backup):
                         "Applied while disabled; health is verified when enabled.",
                     )
                     ctx.audit(conn, actor, "module.update.completed", module_id)
-                return {"state": "disabled", "update": update_id, "health": "not_verified", **diff}
+                return {
+                    "state": "disabled",
+                    "update": update_id,
+                    "health": "not_verified",
+                    "backup_id": backup_id,
+                    "backup_override": override,
+                    **diff,
+                }
             token, resolver_key = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
-            recovery = f"No automatic rollback was performed and its data was not deleted. To recover, review and apply the previous manifest (v{old['version']}); if v{new['version']} migrated data, restore a backup instead."
+            recovery = (
+                f"No automatic rollback was performed and its data was not deleted. To recover, review and apply the previous manifest (v{old['version']}); if v{new['version']} migrated data, restore a backup instead"
+                + (f" (pre-update backup {backup_id})." if backup_id else ".")
+            )
             try:
                 # The broker replaces the container and keeps the module's named data volume.
                 ctx.runtime.call("enable", module_id, new, token, resolver_key)
@@ -288,7 +348,14 @@ def add_update_routes(app, ctx, create_backup):
                         "nexus",
                         f"Module {module_id} updated from v{old['version']} to v{new['version']}.",
                     )
-                    return {"state": "enabled", "update": update_id, "health": "healthy", **diff}
+                    return {
+                        "state": "enabled",
+                        "update": update_id,
+                        "health": "healthy",
+                        "backup_id": backup_id,
+                        "backup_override": override,
+                        **diff,
+                    }
                 conn.execute(
                     "UPDATE modules SET state='error',token=NULL,resolver_key=NULL,health='unhealthy' WHERE id=?",
                     (module_id,),

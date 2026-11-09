@@ -100,7 +100,8 @@ def operate(action, body):
             cap_drop=["ALL"],
             security_opt=["no-new-privileges:true"],
             pids_limit=64,
-            mem_limit="256m",
+            # A larger grant is declared in the manifest and reviewed by the owner (Nexus 0.1.14).
+            mem_limit=f"{min(1024, max(256, int(manifest.get('runtime', {}).get('memory_mb', 256))))}m",
             nano_cpus=500_000_000,
             tmpfs={"/tmp": "rw,noexec,nosuid,size=16777216,uid=10001,gid=10001"},
             environment={

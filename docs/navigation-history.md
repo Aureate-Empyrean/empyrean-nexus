@@ -1,9 +1,27 @@
-# Navigation history and deep links — local pilot
+# Navigation history and deep links
 
-Current implementation reviewed 2026-11-05. The Nexus + Mnemosyne pilot exists in
-the local working trees and is **off by default**. It is not a released ecosystem
-requirement or evidence of production deployment. Chronos remains an unmodified
-legacy module in the browser test. No other module has been migrated.
+**Status update, 2026-11-07.** Nexus 0.1.11 is reported deployed on Exodus with
+this feature **enabled by default** (`NEXUS_NAVIGATION_HISTORY=0` is an internal kill
+switch; the backend treats unset as on). Meridian 0.4.1 added the first deployed
+adapter (routes `/`, `/people[/<id>]`, `/organizations[/<id>]`, `/groups[/<id>]`,
+`/graph`, `/timeline`, `/import`, `/trash`, `/settings`; tabs and filters are not in
+URLs). Source: workspace `DEPLOYMENT_NAVIGATION_2026-11-07.md`. Automated aetest
+checks: Meridian navigation 17/17 (Back/Forward, person, Mouse 4/5 through CDP,
+direct link, refresh, Nexus↔Meridian, Chronos switch, invalid routes, unsaved-edit
+guard, 390 px). In production the owner has confirmed only **Mouse 4 / browser Back**;
+Forward, direct links, refresh, Mouse 5, Firefox/WebKit, BFCache and physical mouse
+buttons are not verified there. Mnemosyne's adapter is in the local tree and **not
+deployed**; Chronos, Lyra and Argus keep legacy navigation. It remains adapter-specific,
+not an all-module commitment. The bridge action `session` is separate (Nexus 0.1.12
+source, not deployed).
+
+The sections below were written on 2026-11-05 for the then default-off pilot. Where
+they say "off by default", "pilot" or that Mnemosyne is the only adapter, read the
+status above; they are otherwise the current integration contract.
+
+*Original 2026-11-05 note:* the Nexus + Mnemosyne pilot existed in the local working
+trees and was off by default. Chronos remained an unmodified legacy module in the
+browser test.
 
 This page describes the current integration contract. The [original proposal](proposals/navigation-history/README.md)
 is historical design context; [PILOT.md](proposals/navigation-history/PILOT.md)
@@ -13,8 +31,10 @@ records the implementation and completed validation. Source of truth for behavio
 
 ## Activation and rollback
 
-The **Nexus server process** must receive exactly `NEXUS_NAVIGATION_HISTORY=1`.
-Unset, `0`, or any other value means off. The authenticated `GET /api/v1/system`
+**As of Nexus 0.1.11 the feature is on unless the server process has
+`NEXUS_NAVIGATION_HISTORY=0`.** (2026-11-05 pilot wording, superseded: the process
+had to receive exactly `NEXUS_NAVIGATION_HISTORY=1`; unset, `0` or any other value
+meant off.) The authenticated `GET /api/v1/system`
 response and the application bridge's `context` result expose
 `navigation: {versions:[1]}` when enabled, or `{versions:[]}` otherwise. This is
 not `/api/v1/module/context` and not a new manifest capability or schema version.

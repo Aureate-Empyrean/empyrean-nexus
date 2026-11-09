@@ -2,9 +2,22 @@
 
 Nexus 0.1.3 adds three module-contract seams from the ecosystem architecture (`concepts/module-contract.md`, `concepts/resource-identity-and-lifecycle.md`, `concepts/backups.md`): outgoing-reference enumeration, backup/restore participation and in-place updates. Nexus orchestrates; modules stay authoritative for their data and never expose their database or schema. All module-facing endpoints below are fixed paths on the module's private network, authenticated with the module's `X-Nexus-Resolver-Key` credential (never a browser credential).
 
-## Browser draft checkpoints are separate (local pilot)
+## Current implementation versus the approved target (2026-11-07)
 
-The default-off [Navigation History pilot](navigation-history.md) adds tab-local
+This document describes what Nexus implements. The approved target in `architecture/concepts/backups.md`, `updates.md` and ADR 0021 is larger and **not implemented**:
+
+| Approved requirement | Today |
+|---|---|
+| A verified recoverable backup before **every** module update; the update never starts if it fails | Since 0.1.13: required by default for modules that implement the backup contract (`NEXUS_UPDATE_BACKUP=require`; `recommend` restores the optional behavior). The backup is hashed, re-read and accepted by the module's own `/backup/validate` before the update starts. The owner may override with a reason, which is recorded. Modules without backup support are not blocked (nothing to back up through Nexus). A restore is not rehearsed, so recoverability is validated, not proven |
+| Manual-only updates, with an explicitly approved Update All | Updates are manual API/CLI operations; there is no Update All and no update discovery |
+| Nexus Backup Manager: ecosystem and module-scoped backups, scheduling, encryption, retention, destinations, consistent snapshots including actual media | Module backup v1 only: bounded artifacts, no encryption, no scheduling or retention, no import into a different installation, no module-independent full-installation backup |
+| One shared Recovery Engine and an independent AE Recovery Utility (AERU) | Neither exists; recovery is the restore/reconcile API and CLI below |
+| Pre-update snapshot retention with pinning and last-recovery-point protection | None |
+| Code rollback versus data rollback | No rollback is performed or claimed (see In-place updates) |
+
+## Browser draft checkpoints are separate
+
+The [Navigation History](navigation-history.md) feature (enabled by default since Nexus 0.1.11) adds tab-local
 recovery copies, not server backups or a new module volume. Parent routing and
 lifecycle refresh checkpoint a participating frame before replacing its UI; that
 does not make the browser a guard/transaction around server stop/update/restore.
@@ -87,9 +100,13 @@ A module update keeps its identity, registration, data volume, shared-file grant
 
 - `POST /api/v1/modules/<id>/update/review` with the new manifest returns the diff: versions (and whether it is a downgrade), image, port, Nexus range, capabilities added/removed, events, resource types, reference scopes, persistent-data effect and the backup policy (`recommended`, `unavailable` for persistent modules without backup support, `not_applicable`). The manifest is fully validated, including Nexus compatibility; identity changes are refused.
 - `POST /api/v1/modules/<id>/update` with `{manifest, grants, backup_before?, allow_downgrade?}`. `grants` must equal the new capability list exactly: an added capability that is not granted is refused (422), removed capabilities are no longer granted. Versions are compared by SemVer 2.0.0 precedence (a release outranks its prereleases, so `1.1.0` → `1.1.0-alpha.1` is a downgrade). Downgrades need `allow_downgrade`; so does an update from a legacy registration whose version predates the SemVer rule, because its direction cannot be determined.
-- **Backup hook**: `backup_before: true` creates a backup first and aborts the update if it fails. `NEXUS_UPDATE_BACKUP=require` makes this mandatory for backup-capable persistent modules (default `recommend`). Whether an update migrates data is the module's business; Nexus never touches module schemas.
+- **Pre-update backup (0.1.13, ADR 0021)**: for a module that implements the backup contract, an update needs either `backup_before: true` or `backup_override: "<reason>"` (≤ 300 characters). `backup_before` exports a backup, re-reads it against its SHA-256 and asks the module's `/empyrean/v1/backup/validate` to accept it; any failure removes the partial backup and stops the update before the module is touched (the error says so and mentions the override). `backup_override` proceeds without a backup and is recorded in the update record (`backup_override`), the audit log (`module.update.backup_overridden`) and a notification; it cannot be combined with `backup_before` and is refused for modules without Nexus backup. The update record names the backup (`backup_id`), and a failed-update notification points to it. The review reports `backup_required`. `NEXUS_UPDATE_BACKUP=recommend` makes the backup optional again (the pre-0.1.13 behavior). CLI: `--backup-first` or `--backup-override "<reason>"`. Whether an update migrates data is the module's business; Nexus never touches module schemas.
 - **Apply**: an enabled (or errored) module is set to `updating`, its credentials are revoked, and the broker replaces the container with the new image while keeping the named data volume. New credentials are issued, then health is verified (`NEXUS_UPDATE_HEALTH_ATTEMPTS`, default 10 × 1 s). Only a healthy module is reported `completed`. A disabled module gets the new manifest and stays disabled; its health is `not_verified` until enabled.
 - **Failure**: if the container cannot start or health does not pass, the module is `error` with revoked credentials and the update record is `failed` at `start` or `health`. **No rollback is performed or claimed.** The notification names the previous version: recover by reviewing and applying the previous manifest (`allow_downgrade`), or by restoring a backup if the new version already migrated data.
 - `GET /api/v1/modules/<id>/updates` shows each attempt with from/to versions, state and stage. A Nexus restart during an update fails it closed.
 
 The CLI in the gateway container supports the same flows for administrators: `python -m nexus.manage manifest.json --update [--approve] [--backup-first] [--allow-downgrade]`, `--backup <id>`, `--restore <id> <backup-id> --confirm-replace`, `--reconcile <id>`.
+
+## Backup objects and completeness (Nexus 0.1.14)
+
+A module declaring `backup.objects: true` is asked for `X-Empyrean-Backup-Mode: quick` or `full`. A full export names an object list (`GET /empyrean/v1/backup/objects`); Nexus fetches each object it does not already hold (`GET /empyrean/v1/backup/object/<sha256>`), verifies its digest and stores it once under `backups/objects/<module>/`. Metadata records `completeness` (`full`, `quick` or absent), separately from whether the backup succeeded. A restore asks which objects are missing (`POST /empyrean/v1/backup/objects/missing`) and returns only those (`POST /empyrean/v1/backup/object/<sha256>`) before the module replaces its data. A manifest may also declare `runtime.memory_mb` (256 to 1024), shown in the update review. Nexus cannot delete backups yet, so unused objects are not reclaimed.

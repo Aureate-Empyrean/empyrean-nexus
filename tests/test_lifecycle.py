@@ -139,6 +139,9 @@ def lab(tmp_path, monkeypatch):
     monkeypatch.setenv("NEXUS_PUBLIC_ORIGIN", "http://testserver")
     monkeypatch.setattr(updates, "sleep", lambda seconds: None)
     monkeypatch.setenv("NEXUS_UPDATE_HEALTH_ATTEMPTS", "2")
+    # Tests about other update rules use the optional policy; the ADR 0021 default (require)
+    # has its own tests below, which remove this setting.
+    monkeypatch.setenv("NEXUS_UPDATE_BACKUP", "recommend")
     runtime = RecordingRuntime()
     module = FakeModule(runtime)
     app = create_app(tmp_path, runtime, httpx.MockTransport(module))
@@ -474,7 +477,7 @@ def test_interrupted_restore_and_update_fail_closed_on_restart(lab):
             "INSERT INTO module_restores VALUES('r','library','b','running','restore','','t','t')"
         )
         conn.execute(
-            "INSERT INTO module_updates VALUES('u','library','1','2','{}','{}','applying','health','','t','t')"
+            "INSERT INTO module_updates(id,module,from_version,to_version,from_manifest,to_manifest,state,stage,detail,started_at,updated_at) VALUES('u','library','1','2','{}','{}','applying','health','','t','t')"
         )
     with TestClient(create_app(path, runtime, httpx.MockTransport(lambda r: httpx.Response(200)))):
         pass
@@ -768,3 +771,117 @@ def test_legacy_non_semver_installed_version_requires_explicit_confirmation(lab)
         ).status_code
         == 200
     )
+
+
+# --- ADR 0021: verified backup before every update, or a recorded override --------------------
+
+
+def update_body(**extra):
+    new = next_version()
+    return new, {"manifest": new, "grants": new["capabilities"], **extra}
+
+
+def installed_version(db):
+    with db.connect() as conn:
+        return json.loads(conn.execute("SELECT manifest FROM modules").fetchone()[0])["version"]
+
+
+def test_backup_is_required_by_default(lab, monkeypatch):
+    client, _, module, db, _ = lab
+    monkeypatch.delenv("NEXUS_UPDATE_BACKUP")
+    new, body = update_body()
+    review = client.post("/api/v1/modules/library/update/review", json=new).json()
+    assert review["backup"] == "recommended" and review["backup_required"] is True
+    refused = client.post("/api/v1/modules/library/update", json=body)
+    assert refused.status_code == 409 and "override reason" in refused.json()["detail"]
+    assert (
+        installed_version(db) == "1.0.0"
+        and client.get("/api/v1/modules/library/updates").json() == []
+    )
+
+
+def test_pre_update_backup_is_verified_and_recorded(lab, monkeypatch):
+    client, _, module, db, _ = lab
+    monkeypatch.delenv("NEXUS_UPDATE_BACKUP")
+    _, body = update_body(backup_before=True)
+    result = client.post("/api/v1/modules/library/update", json=body)
+    assert result.status_code == 200, result.text
+    backups = client.get("/api/v1/modules/library/backups").json()
+    assert len(backups) == 1 and result.json()["backup_id"] == backups[0]["id"]
+    # Exported, then offered back to the module's own validation before the update started.
+    exported = module.calls.index("/empyrean/v1/backup/export")
+    assert "/empyrean/v1/backup/validate" in module.calls[exported:]
+    history = client.get("/api/v1/modules/library/updates").json()[0]
+    assert history["backup_id"] == backups[0]["id"] and history["backup_override"] is None
+    assert installed_version(db) == "1.1.0"
+
+
+def test_rejected_backup_stops_the_update_and_keeps_nothing(lab, monkeypatch):
+    client, runtime, module, db, _ = lab
+    monkeypatch.delenv("NEXUS_UPDATE_BACKUP")
+    module.fail.add("validate")
+    _, body = update_body(backup_before=True)
+    refused = client.post("/api/v1/modules/library/update", json=body)
+    assert refused.status_code == 502
+    detail = refused.json()["detail"]
+    assert "not started" in detail and "override reason" in detail
+    assert client.get("/api/v1/modules/library/backups").json() == []
+    assert installed_version(db) == "1.0.0" and [c[0] for c in runtime.calls] == ["enable"]
+    assert ITEM in module.items
+
+
+def test_owner_override_is_recorded(lab, monkeypatch):
+    client, _, _, db, _ = lab
+    monkeypatch.delenv("NEXUS_UPDATE_BACKUP")
+    _, body = update_body(backup_override="  Library copied by hand\nto the NAS  ")
+    result = client.post("/api/v1/modules/library/update", json=body)
+    assert result.status_code == 200, result.text
+    assert result.json()["backup_override"] == "Library copied by hand to the NAS"
+    history = client.get("/api/v1/modules/library/updates").json()[0]
+    assert history["backup_override"] == "Library copied by hand to the NAS"
+    assert history["backup_id"] is None
+    with db.connect() as conn:
+        assert conn.execute(
+            "SELECT 1 FROM audit WHERE action='module.update.backup_overridden' AND target='library'"
+        ).fetchone()
+        assert conn.execute(
+            "SELECT 1 FROM notifications WHERE message LIKE '%without a backup%Library copied%'"
+        ).fetchone()
+    assert client.get("/api/v1/modules/library/backups").json() == []
+
+
+def test_override_rules(lab, monkeypatch):
+    client, _, _, db, _ = lab
+    monkeypatch.delenv("NEXUS_UPDATE_BACKUP")
+    _, both = update_body(backup_before=True, backup_override="both")
+    assert client.post("/api/v1/modules/library/update", json=both).status_code == 422
+    _, blank = update_body(backup_override="   ")
+    assert client.post("/api/v1/modules/library/update", json=blank).status_code == 409
+    _, long = update_body(backup_override="x" * 301)
+    assert client.post("/api/v1/modules/library/update", json=long).status_code == 422
+    assert installed_version(db) == "1.0.0"
+
+
+def test_modules_without_nexus_backup_are_not_blocked(lab, monkeypatch):
+    client, _, _, db, _ = lab
+    monkeypatch.delenv("NEXUS_UPDATE_BACKUP")
+    # A persistent module that does not implement the backup contract: nothing to require,
+    # and nothing to override.
+    new = next_version()
+    new.pop("backup")
+    review = client.post("/api/v1/modules/library/update/review", json=new).json()
+    assert review["backup"] == "recommended" and review["backup_required"] is True
+    with db.connect() as conn:
+        manifest = json.loads(conn.execute("SELECT manifest FROM modules").fetchone()[0])
+        manifest.pop("backup")
+        conn.execute("UPDATE modules SET manifest=?", (json.dumps(manifest),))
+    review = client.post("/api/v1/modules/library/update/review", json=new).json()
+    assert review["backup"] == "unavailable" and review["backup_required"] is False
+    body = {"manifest": new, "grants": new["capabilities"]}
+    assert (
+        client.post(
+            "/api/v1/modules/library/update", json={**body, "backup_override": "x"}
+        ).status_code
+        == 422
+    )
+    assert client.post("/api/v1/modules/library/update", json=body).status_code == 200
