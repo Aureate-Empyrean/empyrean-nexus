@@ -102,7 +102,11 @@ def main():
         help="Update without the required backup; the reason is recorded (ADR 0021)",
     )
     parser.add_argument("--backup", metavar="MODULE", help="Create a module backup")
-    parser.add_argument("--backup-mode", choices=["quick", "full"], help="Quick or full, for modules that offer both")
+    parser.add_argument(
+        "--backup-mode",
+        choices=["quick", "full"],
+        help="Quick or full, for modules that offer both",
+    )
     parser.add_argument("--restore", nargs=2, metavar=("MODULE", "BACKUP_ID"))
     parser.add_argument(
         "--confirm-replace",

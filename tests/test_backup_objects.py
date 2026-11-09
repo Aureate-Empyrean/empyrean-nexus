@@ -10,7 +10,6 @@ import pytest
 from fastapi.testclient import TestClient
 from nexus.app import create_app
 from nexus.protocol import validate_manifest
-
 from test_lifecycle import RecordingRuntime, persistent_manifest
 
 
@@ -51,7 +50,12 @@ class Library:
             return httpx.Response(200, content=json.dumps(self.database).encode(), headers=headers)
         if path == "/empyrean/v1/backup/objects":
             assert request.url.params["export"] == "token-1"
-            return httpx.Response(200, json={"objects": [{"sha256": k, "size": len(v)} for k, v in self.originals.items()]})
+            return httpx.Response(
+                200,
+                json={
+                    "objects": [{"sha256": k, "size": len(v)} for k, v in self.originals.items()]
+                },
+            )
         if path.startswith("/empyrean/v1/backup/object/"):
             key = path.rsplit("/", 1)[1]
             if request.method == "GET":
@@ -64,7 +68,9 @@ class Library:
             return httpx.Response(200, json={"stored": True})
         if path == "/empyrean/v1/backup/objects/missing":
             wanted = [o["sha256"] for o in json.loads(request.read())["objects"]]
-            return httpx.Response(200, json={"missing": [k for k in wanted if k not in self.originals]})
+            return httpx.Response(
+                200, json={"missing": [k for k in wanted if k not in self.originals]}
+            )
         if path == "/empyrean/v1/backup/validate":
             return httpx.Response(200, json={"valid": True})
         if path == "/empyrean/v1/backup/restore":
@@ -96,7 +102,12 @@ def lab(tmp_path, monkeypatch):
         })  # fmt: skip
         client.headers["X-Nexus-CSRF"] = setup.json()["csrf"]
         m = manifest()
-        assert client.post("/api/v1/modules", json={"manifest": m, "grants": m["capabilities"]}).status_code == 201
+        assert (
+            client.post(
+                "/api/v1/modules", json={"manifest": m, "grants": m["capabilities"]}
+            ).status_code
+            == 201
+        )
         assert client.post("/api/v1/modules/library/enable").status_code == 200
         yield client, module, tmp_path
 
@@ -116,10 +127,18 @@ def test_full_backup_stores_objects_once_and_quick_is_labelled_incomplete(lab):
     assert (second["objects"]["count"], second["objects"]["transferred"]) == (4, 1)
     assert module.fetched == [sha(b"third photo")]
     quick = client.post("/api/v1/modules/library/backups", params={"mode": "quick"})
-    assert quick.status_code == 201 and quick.json()["completeness"] == "quick" and not quick.json().get("objects")
-    listed = {b["id"]: b["completeness"] for b in client.get("/api/v1/modules/library/backups").json()}
+    assert (
+        quick.status_code == 201
+        and quick.json()["completeness"] == "quick"
+        and not quick.json().get("objects")
+    )
+    listed = {
+        b["id"]: b["completeness"] for b in client.get("/api/v1/modules/library/backups").json()
+    }
     assert sorted(listed.values()) == ["full", "full", "quick"]
-    assert client.post("/api/v1/modules/library/backups", params={"mode": "other"}).status_code == 422
+    assert (
+        client.post("/api/v1/modules/library/backups", params={"mode": "other"}).status_code == 422
+    )
     download = client.get(f"/api/v1/modules/library/backups/{meta['id']}/download")
     archive = path / "bundle.tar"
     archive.write_bytes(download.content)
@@ -144,14 +163,18 @@ def test_restore_returns_only_the_missing_objects(lab):
     meta = client.post("/api/v1/modules/library/backups").json()
     lost = sha(b"second photo")
     kept = module.originals.pop(lost)
-    result = client.post(f"/api/v1/modules/library/backups/{meta['id']}/restore", json={"confirm_replace": True})
+    result = client.post(
+        f"/api/v1/modules/library/backups/{meta['id']}/restore", json={"confirm_replace": True}
+    )
     assert result.status_code in (200, 201, 202), result.text
     assert module.received == [lost] and module.originals[lost] == kept
     stored = path / "backups/objects/library" / lost[:2] / lost
     stored.chmod(0o640)
     stored.write_bytes(b"bit rot")
     module.received.clear()
-    again = client.post(f"/api/v1/modules/library/backups/{meta['id']}/restore", json={"confirm_replace": True})
+    again = client.post(
+        f"/api/v1/modules/library/backups/{meta['id']}/restore", json={"confirm_replace": True}
+    )
     assert again.status_code == 409 and "damaged" in again.text and module.received == []
 
 

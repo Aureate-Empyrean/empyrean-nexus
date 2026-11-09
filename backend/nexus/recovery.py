@@ -83,7 +83,9 @@ def backup_metadata(row, headers, artifact_sha, artifact_size, blobs):
         "artifact": {"sha256": artifact_sha, "size": artifact_size},
         "blobs": blobs,
         # "full" or "quick" when the module says so; separate from whether the backup succeeded.
-        "completeness": value.get("completeness") if value.get("completeness") in ("full", "quick") else None,
+        "completeness": value.get("completeness")
+        if value.get("completeness") in ("full", "quick")
+        else None,
     }
 
 
@@ -142,12 +144,18 @@ def add_recovery_routes(app, ctx):
     def fetch_objects(row, token, target):
         """Store what the module lists, once: an object already held is not transferred again."""
         try:
-            with httpx.Client(transport=ctx.transport, timeout=300, follow_redirects=False, trust_env=False) as client:
+            with httpx.Client(
+                transport=ctx.transport, timeout=300, follow_redirects=False, trust_env=False
+            ) as client:
                 base = ctx.runtime.target(row["id"], row["port"])
                 key = {"X-Nexus-Resolver-Key": row["resolver_key"]}
-                listing = client.get(base + "/empyrean/v1/backup/objects", params={"export": token}, headers=key)
+                listing = client.get(
+                    base + "/empyrean/v1/backup/objects", params={"export": token}, headers=key
+                )
                 if listing.status_code != 200:
-                    raise RecoveryError(f"Module answered HTTP {listing.status_code} listing its objects")
+                    raise RecoveryError(
+                        f"Module answered HTTP {listing.status_code} listing its objects"
+                    )
                 wanted = listing.json()["objects"]
                 transferred = sent = 0
                 for item in wanted:
@@ -159,7 +167,9 @@ def add_recovery_routes(app, ctx):
                     temp = path.parent / f".{sha}.{uuid.uuid4().hex}"
                     try:
                         hasher = hashlib.sha256()
-                        with client.stream("GET", base + f"/empyrean/v1/backup/object/{sha}", headers=key) as response:
+                        with client.stream(
+                            "GET", base + f"/empyrean/v1/backup/object/{sha}", headers=key
+                        ) as response:
                             if response.status_code != 200:
                                 raise RecoveryError(f"Module could not provide object {sha[:12]}")
                             with open(temp, "wb") as out:
@@ -191,7 +201,9 @@ def add_recovery_routes(app, ctx):
     def stored_objects(metadata):
         if not metadata.get("objects"):
             return []
-        return json.loads((directory(metadata["module"], metadata["id"]) / "objects.json").read_text())
+        return json.loads(
+            (directory(metadata["module"], metadata["id"]) / "objects.json").read_text()
+        )
 
     def create_backup(row, actor, verify=False, mode=None):
         """Caller holds the lifecycle lock. Nothing is recorded unless every part is complete.
@@ -290,7 +302,10 @@ def add_recovery_routes(app, ctx):
                 raise RecoveryError("A backed-up shared file does not match its hash")
         if metadata.get("objects"):
             for item in json.loads((target / "objects.json").read_text()):
-                if sha256_file(object_path(metadata["module"], item["sha256"]))[0] != item["sha256"]:
+                if (
+                    sha256_file(object_path(metadata["module"], item["sha256"]))[0]
+                    != item["sha256"]
+                ):
                     raise RecoveryError("A backed-up object does not match its hash")
         headers = {
             "Content-Type": "application/octet-stream",
@@ -299,7 +314,11 @@ def add_recovery_routes(app, ctx):
             HEADER + "Format": metadata["module_format"],
             HEADER + "Format-Version": str(metadata["module_format_version"]),
             HEADER + "Created-At": metadata["created_at"],
-            **({HEADER + "Completeness": metadata["completeness"]} if metadata.get("completeness") else {}),
+            **(
+                {HEADER + "Completeness": metadata["completeness"]}
+                if metadata.get("completeness")
+                else {}
+            ),
         }
         with open(artifact, "rb") as body:
             if call(row, "/empyrean/v1/backup/validate", body, headers).get("valid") is not True:
@@ -330,7 +349,9 @@ def add_recovery_routes(app, ctx):
         for item in stored_objects(metadata):
             path = object_path(metadata["module"], item["sha256"])
             if not path.exists() or sha256_file(path)[0] != item["sha256"]:
-                raise HTTPException(409, "A backed-up object is damaged or missing; nothing was changed")
+                raise HTTPException(
+                    409, "A backed-up object is damaged or missing; nothing was changed"
+                )
         return artifact
 
     def job(conn, job_id, state, stage, detail=""):
@@ -407,7 +428,11 @@ def add_recovery_routes(app, ctx):
             HEADER + "Format": metadata["module_format"],
             HEADER + "Format-Version": str(metadata["module_format_version"]),
             HEADER + "Created-At": metadata["created_at"],
-            **({HEADER + "Completeness": metadata["completeness"]} if metadata.get("completeness") else {}),
+            **(
+                {HEADER + "Completeness": metadata["completeness"]}
+                if metadata.get("completeness")
+                else {}
+            ),
         }
         job_id = str(uuid.uuid4())
         with ctx.db.connect() as conn:
@@ -438,16 +463,28 @@ def add_recovery_routes(app, ctx):
                 with ctx.db.connect() as conn:
                     job(conn, job_id, "running", "objects")
                 body = json.dumps({"objects": wanted}).encode()
-                missing = call(row, "/empyrean/v1/backup/objects/missing", body, {"Content-Type": "application/json"})["missing"]
+                missing = call(
+                    row,
+                    "/empyrean/v1/backup/objects/missing",
+                    body,
+                    {"Content-Type": "application/json"},
+                )["missing"]
                 for sha in missing:
                     with open(object_path(row["id"], sha), "rb") as content:
-                        call(row, f"/empyrean/v1/backup/object/{sha}", content, {"Content-Type": "application/octet-stream"})
+                        call(
+                            row,
+                            f"/empyrean/v1/backup/object/{sha}",
+                            content,
+                            {"Content-Type": "application/octet-stream"},
+                        )
         except (RecoveryError, KeyError, TypeError, OSError) as exc:
             with ctx.db.connect() as conn:
                 conn.execute("UPDATE modules SET state='enabled' WHERE id=?", (row["id"],))
                 job(conn, job_id, "failed", "objects", str(exc))
                 ctx.audit(conn, actor, "module.restore.failed", row["id"])
-            raise HTTPException(502, "Backed-up objects could not be returned; module data was not changed") from exc
+            raise HTTPException(
+                502, "Backed-up objects could not be returned; module data was not changed"
+            ) from exc
         with ctx.db.connect() as conn:
             job(conn, job_id, "running", "blobs")
         # Shared files are only ever added, never removed, so this step is safe to repeat.
@@ -510,7 +547,9 @@ def add_recovery_routes(app, ctx):
         if mode not in (None, "quick", "full"):
             raise HTTPException(422, "Unknown backup mode")
         with ctx.lock:
-            return create_backup(module(module_id), owner.get("actor") or owner["user_id"], mode=mode)
+            return create_backup(
+                module(module_id), owner.get("actor") or owner["user_id"], mode=mode
+            )
 
     @app.get("/api/v1/modules/{module_id}/backups")
     def backups(module_id: str, owner=Depends(ctx.require_owner)):

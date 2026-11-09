@@ -916,9 +916,14 @@ def create_app(data_dir=None, runtime=None, transport=None):
             if request.method != "GET" or target_path != routes["ui"]:
                 raise
             return HTMLResponse(
-                UNAVAILABLE_PAGE.replace("{name}", html.escape(json.loads(row["manifest"])["name"])),
+                UNAVAILABLE_PAGE.replace(
+                    "{name}", html.escape(json.loads(row["manifest"])["name"])
+                ),
                 status_code=502,
-                headers={"Cache-Control": "no-store", "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'"},
+                headers={
+                    "Cache-Control": "no-store",
+                    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'self'",
+                },
             )
         # Never forward cookies, redirects, authentication headers, CORS or module CSP.
         if 300 <= code < 400:

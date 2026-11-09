@@ -56,27 +56,35 @@ def main():
             check("Stopped module shown as Unavailable without a reload")
             expect(hero).to_have_text(f"{name} is unavailable")
             expect(page.locator(".hero-sub")).to_contain_text(
-                f"{total - 1} of {total} modules running · 1 unavailable")
+                f"{total - 1} of {total} modules running · 1 unavailable"
+            )
             check("Headline and running count exclude the unavailable module")
-            check("No green Running indicator on it",
-                  row.locator(".status.tone-good").count() == 0)
-            check("No Open action for the unavailable module",
-                  row.locator("a", has_text="Open").count() == 0)
-            check("Other modules still running", page.locator(
-                ".overview-app .status.tone-good").count() == total - 1)
+            check("No green Running indicator on it", row.locator(".status.tone-good").count() == 0)
+            check(
+                "No Open action for the unavailable module",
+                row.locator("a", has_text="Open").count() == 0,
+            )
+            check(
+                "Other modules still running",
+                page.locator(".overview-app .status.tone-good").count() == total - 1,
+            )
             page.screenshot(path=str(SHOTS / "overview-unavailable-1440.png"), full_page=True)
             page.goto(f"http://localhost:12334/app/modules/{MODULE}")
             expect(page.locator("h1")).to_have_text(re.compile("is not responding"), timeout=15000)
-            check("Module view explains instead of showing a raw proxy error",
-                  page.locator("#module-application").count() == 0)
+            check(
+                "Module view explains instead of showing a raw proxy error",
+                page.locator("#module-application").count() == 0,
+            )
             page.screenshot(path=str(SHOTS / "module-unavailable-1440.png"))
             page.goto(URL)
         finally:
             subprocess.run(["docker", "start", container], check=True, capture_output=True)
-        expect(page.locator(".hero h1")).to_have_text("Everything is running normally",
-                                                     timeout=90000)
-        expect(page.locator(f'.overview-app[data-module-id="{MODULE}"] .status.tone-good')
-               ).to_be_visible()
+        expect(page.locator(".hero h1")).to_have_text(
+            "Everything is running normally", timeout=90000
+        )
+        expect(
+            page.locator(f'.overview-app[data-module-id="{MODULE}"] .status.tone-good')
+        ).to_be_visible()
         check("Recovery shown without a reload")
         page.set_viewport_size({"width": 390, "height": 844})
         page.screenshot(path=str(SHOTS / "overview-390.png"), full_page=True)
@@ -108,9 +116,12 @@ def startup():
         name = row.locator("strong").inner_text()
         expect(page.locator(".hero h1")).to_have_text(f"{name} is unavailable", timeout=60000)
         expect(page.locator(".hero-sub")).to_contain_text(
-            f"{total - 1} of {total} modules running · 1 unavailable")
-        check("Module stopped before a Nexus restart is Unavailable, not running",
-              row.locator("a", has_text="Open").count() == 0)
+            f"{total - 1} of {total} modules running · 1 unavailable"
+        )
+        check(
+            "Module stopped before a Nexus restart is Unavailable, not running",
+            row.locator("a", has_text="Open").count() == 0,
+        )
         page.screenshot(path=str(SHOTS / "overview-after-restart-1440.png"), full_page=True)
         browser.close()
     print(json.dumps({"passed": sum(ok for _, ok in results), "total": len(results)}))

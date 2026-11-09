@@ -38,13 +38,20 @@ def start(tmp_path, monkeypatch, manifest, module, interval="0"):
     client.__enter__()
     claim = tmp_path / "setup-token"
     if claim.exists():
-        r = client.post("/api/v1/setup", json={
-            "username": "owner", "password": "a unique long passphrase",
-            "installation_name": "Test Nexus", "claim_token": claim.read_text()})
+        r = client.post(
+            "/api/v1/setup",
+            json={
+                "username": "owner",
+                "password": "a unique long passphrase",
+                "installation_name": "Test Nexus",
+                "claim_token": claim.read_text(),
+            },
+        )
         client.headers["X-Nexus-CSRF"] = r.json()["csrf"]
     else:
-        r = client.post("/api/v1/auth/login", json={"username": "owner",
-                                                    "password": "a unique long passphrase"})
+        r = client.post(
+            "/api/v1/auth/login", json={"username": "owner", "password": "a unique long passphrase"}
+        )
         client.headers["X-Nexus-CSRF"] = r.json()["csrf"]
     return app, client
 
@@ -78,8 +85,10 @@ def test_stopped_module_becomes_unavailable_on_the_next_monitor_pass(running):
     app.state.health_monitor_pass()
     v = view(client, mid)
     assert (v["state"], v["health"], v["availability"]) == ("enabled", "unreachable", "unavailable")
-    assert any(f"Module {mid} is unreachable" in n["message"]
-               for n in client.get("/api/v1/notifications").json())
+    assert any(
+        f"Module {mid} is unreachable" in n["message"]
+        for n in client.get("/api/v1/notifications").json()
+    )
 
 
 def test_health_check_timeout_counts_as_unavailable(running):
@@ -103,8 +112,10 @@ def test_recovery_from_unavailable_to_available(running):
     module.mode = "up"
     app.state.health_monitor_pass()
     assert view(client, mid)["availability"] == "available"
-    assert any(f"Module {mid} recovered" in n["message"]
-               for n in client.get("/api/v1/notifications").json())
+    assert any(
+        f"Module {mid} recovered" in n["message"]
+        for n in client.get("/api/v1/notifications").json()
+    )
 
 
 def test_stale_result_is_unknown_never_running(running, monkeypatch):

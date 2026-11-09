@@ -25,7 +25,6 @@ class FakeRuntime:
         return f"http://module-{module_id}:{port}"
 
 
-
 @pytest.fixture(autouse=True)
 def no_background_health_monitor(monkeypatch):
     """Tests drive health checks explicitly; the monitor thread is tested on its own."""
