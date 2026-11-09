@@ -40,20 +40,49 @@
     }
     let binding = null;
     const key = module => 'nexus.navigation.drafts.v1:' + owner() + ':' + module;
+    const viewsKey = scope => 'nexus.navigation.views.v1:' + owner() + ':' + scope;
     function snapshot(module) {
       try { return JSON.parse(storage.getItem(key(module)) || 'null'); } catch { return null; }
     }
     function post(message) {
       if (binding?.frame.isConnected) binding.frame.contentWindow.postMessage({channel, ...message}, '*');
     }
+    /* Private per-history-entry view state (filters, loaded range, scroll). The browser entry
+     * holds only an opaque id; the value stays in this tab's storage, never in a URL. */
+    function currentEntry() {
+      try {
+        const existing = history.state?.nexusNavigation?.entry;
+        if (typeof existing === 'string') return existing;
+        const entry = nonce();
+        history.replaceState({...history.state, nexusNavigation:{version:1, entry}}, '', location.pathname + location.search + location.hash);
+        return entry;
+      } catch { return null; }
+    }
+    function readViews(scope) {
+      try { return JSON.parse(storage.getItem(viewsKey(scope)) || '{}') || {}; } catch { return {}; }
+    }
+    function readEntryView(scope, entry = currentEntry()) { return entry ? readViews(scope)[entry] ?? null : null; }
+    function writeEntryView(scope, entry, value) {
+      if (!entry || !value || typeof value !== 'object' || Array.isArray(value)) return;
+      try {
+        if (bytes(JSON.stringify(value)) > 16 * 1024) return;
+        const views = readViews(scope);
+        delete views[entry]; views[entry] = value; // insertion order: oldest entries are dropped first
+        for (const old of Object.keys(views).slice(0, -40)) delete views[old];
+        storage.setItem(viewsKey(scope), JSON.stringify(views));
+      } catch { /* view restoration is best effort and never blocks navigation */ }
+    }
     function restore(cause = 'traversal') {
       if (!binding?.document) return;
       clearTimeout(binding.timer);
       const target = current();
       binding.leaving = false;
+      binding.cause = cause;
+      binding.entry = currentEntry();
       post({type:'restore', document:binding.document, session:binding.session,
         revision:++binding.revision, route:target.navigationRoute ?? target.modulePath,
         legacy:target.navigationRoute === undefined, cause,
+        ...(cause === 'commit' ? {} : {viewState:readEntryView(binding.module, binding.entry)}),
         ...(cause === 'initial' ? {checkpoint:snapshot(binding.module)} : {})});
       const revision = binding.revision;
       binding.timer = setTimeout(() => {
@@ -103,7 +132,13 @@
         clearTimeout(binding.leavingTimer);
         const pending = binding.leave; binding.leave = null;
         if (m.error) { binding.leaving = false; pending.reject(Error('Draft checkpoint failed. The editor remains open for recovery.')); }
-        else pending.resolve();
+        else { writeEntryView(binding.module, binding.entry, m.viewState); pending.resolve(); }
+        return;
+      }
+      if (m.type === 'view-state') {
+        if (m.revision !== binding.revision || binding.leaving) return;
+        if (!binding.viewStart || Date.now() - binding.viewStart > 1000) { binding.viewStart = Date.now(); binding.viewCount = 0; }
+        if (++binding.viewCount <= 20) writeEntryView(binding.module, binding.entry, m.value);
         return;
       }
       if (m.type === 'checkpoint') {
@@ -127,7 +162,10 @@
       if (m.type === 'applied') {
         if (m.revision !== binding.revision || !['ok','not-found','error'].includes(m.status)) return;
         clearTimeout(binding.timer);
-        report(m.status === 'ok' ? '' : 'The application could not open this view. The address has been retained.');
+        // 'not-found' means the module is already showing its own explicit outcome.
+        // A resume follows a refused leave: its explanation stays until the next real navigation.
+        if (m.status === 'error') report('The application could not open this view. The address has been retained.');
+        else if (binding.cause !== 'resume') report('');
         return;
       }
       if (m.type !== 'commit') return;
@@ -139,9 +177,12 @@
         if (!['push','replace'].includes(m.mode)) throw Error('Invalid history mode');
         const next = urlFor(location.href, m.route);
         const previous = location.pathname + location.search + location.hash;
+        writeEntryView(binding.module, binding.entry, m.viewState);
         if (next !== previous) {
+          // A replaced entry keeps its identity; a pushed one starts with no view state.
+          const entry = m.mode === 'replace' && binding.entry ? binding.entry : nonce();
           history[m.mode === 'push' ? 'pushState' : 'replaceState'](
-            {...history.state, nexusNavigation:{version:1}}, '', next);
+            {...history.state, nexusNavigation:{version:1, entry}}, '', next);
           commit(m.route);
         }
         restore('commit');
@@ -172,22 +213,47 @@
       }
       return false;
     }
-    return {bind, restore, reset, receive, prepareLeave, hasDrafts, clearModuleDrafts(module) { storage.removeItem?.(key(module)); }, clearDrafts() {
-      const prefix = 'nexus.navigation.drafts.v1:' + owner() + ':';
-      for (let i = storage.length - 1; i >= 0; i--) {
-        const name = storage.key(i); if (name?.startsWith(prefix)) storage.removeItem(name);
-      }
+    return {bind, restore, reset, receive, prepareLeave, hasDrafts, currentEntry, readEntryView, writeEntryView,
+      clearModuleDrafts(module) { storage.removeItem?.(key(module)); storage.removeItem?.(viewsKey(module)); }, clearDrafts() {
+      for (const prefix of ['nexus.navigation.drafts.v1:', 'nexus.navigation.views.v1:'].map(name => name + owner() + ':'))
+        for (let i = storage.length - 1; i >= 0; i--) {
+          const name = storage.key(i); if (name?.startsWith(prefix)) storage.removeItem(name);
+        }
     }};
   }
-  function createClient({ apply, invalidate = () => {}, onError = () => {}, beforeLeave = async () => {} }) {
+  function createClient({ apply, invalidate = () => {}, onError = () => {}, beforeLeave = async () => {}, captureView = null }) {
     const documentId = nonce();
     const parentOrigin = (() => { try { return new URL(document.referrer).origin; } catch { return location.origin; } })();
-    let enabled = false, session, revision = 0, target, draining = false, intent, initial, currentRoute, challenge;
+    // idle → handshaking → ready, or handshaking → failed (start() may be retried), or unsupported.
+    let phase = 'idle', session, revision = 0, target, draining = false, intent, initial, currentRoute, challenge;
     let receipt = 0;
-    let sequence = 0, helloTimer, helloAttempts = 0;
+    let sequence = 0, helloTimer, helloAttempts = 0, starting = null, viewTimer;
     const checkpoints = new Map();
     const post = data => parent.postMessage({channel, ...data}, parentOrigin);
     function failure(error) { onError(error); return error; }
+    /** The module's private state for the entry on screen; never read while a restore is applying. */
+    function view() {
+      if (!captureView || draining) return undefined;
+      try { return captureView() || undefined; } catch { return undefined; }
+    }
+    function viewChanged() {
+      if (!captureView || phase !== 'ready') return;
+      clearTimeout(viewTimer);
+      viewTimer = setTimeout(() => {
+        const value = view();
+        if (value && session) post({type:'view-state',session,revision,value});
+      }, 300);
+    }
+    if (captureView) window.addEventListener('scroll', viewChanged, {capture:true, passive:true});
+    function failStart(error) {
+      clearInterval(helloTimer);
+      phase = 'failed'; session = undefined; revision = 0; target = null; ++receipt;
+      intent?.reject(error); intent = null;
+      for (const pending of checkpoints.values()) { clearTimeout(pending.timer); pending.reject(error); }
+      checkpoints.clear();
+      const waiting = initial; initial = null; starting = null;
+      waiting?.reject(error);
+    }
     async function drain() {
       if (draining) return;
       draining = true;
@@ -196,25 +262,27 @@
         const token = receipt;
         const isCurrent = () => token === receipt && message.revision === revision && message.session === session;
         let status = 'ok';
-        try { await apply(message.route, {...message, isCurrent}); }
+        // apply() throws on failure; it returns 'not-found' after rendering its own outcome.
+        try { if (await apply(message.route, {...message, isCurrent}) === 'not-found') status = 'not-found'; }
         catch (error) { status = 'error'; if (isCurrent()) failure(error); }
         if (!isCurrent()) continue;
         post({type:'applied',session,revision,status});
-        initial?.resolve(message); initial = null;
-        if (intent && message.cause === 'commit') { intent.resolve(message); intent = null; }
+        initial?.resolve({...message, status}); initial = null;
+        if (intent && message.cause === 'commit') { intent.resolve({...message, status}); intent = null; }
       }
       draining = false;
     }
     window.addEventListener('message', event => {
       const m = event.data;
-      if (!enabled || event.source !== parent || event.origin !== parentOrigin || m?.channel !== channel) return;
+      if ((phase !== 'handshaking' && phase !== 'ready') || event.source !== parent || event.origin !== parentOrigin || m?.channel !== channel) return;
       if (m.type === 'prepare-leave' && m.session === session) {
         if (!Number.isSafeInteger(m.revision) || m.revision <= revision || typeof m.id !== 'string') return;
+        const captured = view();
         revision = m.revision; ++receipt;
         intent?.reject(Error('Navigation superseded')); intent = null;
         invalidate();
         Promise.resolve().then(beforeLeave).then(
-          () => post({type:'prepared',session,id:m.id}),
+          () => post({type:'prepared',session,id:m.id,...(captured ? {viewState:captured} : {})}),
           () => post({type:'prepared',session,id:m.id,error:true}));
       } else if (m.type === 'probe') {
         if (typeof m.challenge !== 'string' || !/^[\w-]{1,100}$/.test(m.challenge)) return;
@@ -228,7 +296,7 @@
             (session && session !== m.session) || !Number.isSafeInteger(m.revision) || m.revision <= revision) return;
         try { route(m.route); } catch { return; }
         session = m.session; revision = m.revision; currentRoute = m.route; ++receipt;
-        clearInterval(helloTimer);
+        clearInterval(helloTimer); phase = 'ready';
         if (intent && m.cause !== 'commit') { intent.reject(Error('Navigation superseded')); intent = null; }
         invalidate(); target = m; void drain();
       } else if (m.session === session && m.type === 'reject') {
@@ -244,34 +312,43 @@
       pending.timer = setTimeout(() => pending.reject(failure(Error(label))), 10000);
     }
     return {
-      get enabled() { return enabled; },
+      /** True only once the host has granted a session; false again after a failed handshake. */
+      get enabled() { return phase === 'ready'; },
+      get status() { return phase; },
       get revision() { return revision; },
       get route() { return currentRoute; },
-      async start(context) {
-        if (!context?.navigation?.versions?.includes(1) || parent === window) return false;
-        enabled = true;
-        const ready = new Promise((resolve, reject) => { initial = {resolve,reject}; });
+      /** Resolves true when negotiated, false on an unsupported host, and rejects on timeout. Safe to
+       * call again after a rejection: each attempt starts from a clean state. */
+      start(context) {
+        if (phase === 'ready') return Promise.resolve(true);
+        if (!context?.navigation?.versions?.includes(1) || parent === window) { phase = 'unsupported'; return Promise.resolve(false); }
+        if (starting) return starting;
+        phase = 'handshaking'; session = undefined; revision = 0; helloAttempts = 0; target = null; ++receipt;
+        starting = new Promise((resolve, reject) => { initial = {resolve,reject}; }).then(() => { starting = null; return true; });
         const hello = () => {
-          if (++helloAttempts > 5) { clearInterval(helloTimer); initial?.reject(Error('Navigation handshake timed out')); initial = null; return; }
+          if (++helloAttempts > 5) { failStart(Error('Navigation handshake timed out')); return; }
           post({type:'hello',version:1,document:documentId,challenge});
         };
         helloTimer = setInterval(hello, 500); hello();
-        await ready; return true;
+        return starting;
       },
       navigate(value, mode = 'push') {
         route(value);
-        if (!enabled || !session) return Promise.reject(Error('Navigation is not ready'));
+        if (phase !== 'ready' || !session) return Promise.reject(Error('Navigation is not ready'));
         // One outstanding intent. Never rebase an obsolete intent after traversal.
         if (intent) return Promise.reject(Error('Navigation is already pending'));
         return new Promise((resolve, reject) => {
           const pending = {resolve: value => {clearTimeout(pending.timer); resolve(value);},
             reject: error => {clearTimeout(pending.timer); if (intent === pending) intent = null; reject(error);}};
           intent = pending; timeout(pending, 'Navigation acknowledgment timed out');
-          post({type:'commit',session,baseRevision:revision,route:value,mode});
+          const captured = view();
+          post({type:'commit',session,baseRevision:revision,route:value,mode,...(captured ? {viewState:captured} : {})});
         });
       },
+      /** Tell the host that the private view state of the entry on screen changed (debounced). */
+      viewChanged,
       checkpoint(value) {
-        if (!enabled || !session) return Promise.resolve();
+        if (phase !== 'ready' || !session) return Promise.resolve();
         return new Promise((resolve, reject) => {
           const id = ++sequence, pending = {resolve,reject};
           checkpoints.set(id, pending); timeout(pending, 'Draft checkpoint timed out');

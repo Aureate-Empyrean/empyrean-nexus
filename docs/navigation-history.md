@@ -1,27 +1,15 @@
 # Navigation history and deep links
 
-**Status update, 2026-11-07.** Nexus 0.1.11 is reported deployed on Exodus with
-this feature **enabled by default** (`NEXUS_NAVIGATION_HISTORY=0` is an internal kill
-switch; the backend treats unset as on). Meridian 0.4.1 added the first deployed
-adapter (routes `/`, `/people[/<id>]`, `/organizations[/<id>]`, `/groups[/<id>]`,
-`/graph`, `/timeline`, `/import`, `/trash`, `/settings`; tabs and filters are not in
-URLs). Source: workspace `DEPLOYMENT_NAVIGATION_2026-11-07.md`. Automated aetest
-checks: Meridian navigation 17/17 (Back/Forward, person, Mouse 4/5 through CDP,
-direct link, refresh, Nexus↔Meridian, Chronos switch, invalid routes, unsaved-edit
-guard, 390 px). In production the owner has confirmed only **Mouse 4 / browser Back**;
-Forward, direct links, refresh, Mouse 5, Firefox/WebKit, BFCache and physical mouse
-buttons are not verified there. Mnemosyne's adapter is in the local tree and **not
-deployed**; Chronos, Lyra and Argus keep legacy navigation. It remains adapter-specific,
-not an all-module commitment. The bridge action `session` is separate (Nexus 0.1.12
-source, not deployed).
+**Status, 2026-11-09 (P1 Universal Navigation, aetest only).** Nexus 0.1.15 and every
+public module use this contract: Meridian 0.11.0, Mnemosyne 1.5.1, Lyra 0.2.0, Chronos 0.5.0,
+Atlas 0.4.0 and Argus 0.3.0, passing automated journeys in Chromium, WebKit and Firefox on
+Linux. Production still runs the previous versions, in which Lyra, Chronos, Atlas and Argus
+have bootstrap deep links only. Evidence and the checks that remain open are in the
+[validation record](../../VALIDATION_P1_NAVIGATION_AETEST_2026-11-09.md). In production the
+owner has confirmed only Mouse 4 / browser Back.
 
-The sections below were written on 2026-11-05 for the then default-off pilot. Where
-they say "off by default", "pilot" or that Mnemosyne is the only adapter, read the
-status above; they are otherwise the current integration contract.
-
-*Original 2026-11-05 note:* the Nexus + Mnemosyne pilot existed in the local working
-trees and was off by default. Chronos remained an unmodified legacy module in the
-browser test.
+The feature is on by default. Zeus and Janus are outside it on purpose: Zeus is private
+developer tooling, and Janus is delivered separately and locks when it is left.
 
 This page describes the current integration contract. The [original proposal](proposals/navigation-history/README.md)
 is historical design context; [PILOT.md](proposals/navigation-history/PILOT.md)
@@ -31,54 +19,24 @@ records the implementation and completed validation. Source of truth for behavio
 
 ## Activation and rollback
 
-**As of Nexus 0.1.11 the feature is on unless the server process has
-`NEXUS_NAVIGATION_HISTORY=0`.** (2026-11-05 pilot wording, superseded: the process
-had to receive exactly `NEXUS_NAVIGATION_HISTORY=1`; unset, `0` or any other value
-meant off.) The authenticated `GET /api/v1/system`
-response and the application bridge's `context` result expose
-`navigation: {versions:[1]}` when enabled, or `{versions:[]}` otherwise. This is
-not `/api/v1/module/context` and not a new manifest capability or schema version.
+The feature is on unless the server process has `NEXUS_NAVIGATION_HISTORY=0`. Only that
+literal value disables it. The authenticated `GET /api/v1/system` response and the application
+bridge's `context` result expose `navigation: {versions:[1]}` when enabled, or
+`{versions:[]}` otherwise. This is not `/api/v1/module/context` and not a manifest capability.
 
-Activation requires all three:
-
-1. Nexus backend and frontend containing the pilot, restarted/reloaded together.
-2. The flag in the actual Nexus process environment.
-3. An enabled `ui.application` module containing the shared client and its own
-   route/draft adapter. Mnemosyne is the only integrated application today.
-
-For a normally configured **local native** server, the flag can be supplied before
-starting it. This example starts no broker or modules:
-
-```powershell
-# From empyrean-nexus, with normal dependencies installed in .venv:
-$env:NEXUS_NAVIGATION_HISTORY = '1'
-$env:PYTHONPATH = 'backend'
-.\.venv\Scripts\python.exe -X utf8 -m uvicorn nexus.app:create_app --factory --host 127.0.0.1 --port 12333 --no-proxy-headers
-```
-
-Use the [disposable real-app browser test](development.md#navigation-history-pilot)
-to exercise local module lifecycle without a Docker broker. Do not connect its
-test-only process runtime to a real installation.
-
-**Compose gap:** checked-in `compose.yaml` and `.env.example` do not forward or
-declare this flag. Adding it to `.env`, or to the host shell, alone does not put it
-inside the Nexus container. A separately reviewed local Compose override must
-explicitly add the following environment entry to the `nexus` service, and the
-local container must use the pilot build and be recreated. No such override or
-deployment is supplied/applied by this documentation update:
+**Compose gap:** the checked-in `compose.yaml` does not forward the flag, so an operator kill
+switch has to reach the container through a reviewed override:
 
 ```yaml
 services:
   nexus:
     environment:
-      NEXUS_NAVIGATION_HISTORY: "1"
+      NEXUS_NAVIGATION_HISTORY: "0"
 ```
 
-To roll back, remove the flag from the actual server/container environment and
-restart/reload the host and module UI. New clients fall back to legacy navigation
-when the version advertisement is missing/empty. Keep saved drafts or recover
-them before disabling the feature: the old path does not consume the checkpoint
-channel. An old host cannot reconstruct an arbitrary new internal route.
+To roll back, set that and restart. Clients fall back to their in-memory navigation when the
+advertisement is empty. Saved drafts are not consumed on that path, so recover them first. An
+old host cannot reconstruct an arbitrary new internal route.
 
 ## Ownership and URLs
 
@@ -122,6 +80,21 @@ the outer hash and other `history.state` keys. URL reconstruction, not hidden
 JavaScript history state, identifies the resource after reload. Search text,
 drafts, credentials and resource bodies must not be placed in route references.
 
+### Shareable identity and private view state
+
+A route reference is what can be copied and shared: a screen and stable IDs. Everything else
+about how a view looked is **private per-entry view state**: filters, search text, loaded
+ranges, scroll, tabs, a map position, which contact is selected. The browser entry holds only
+an opaque ID in `history.state.nexusNavigation.entry`. The value stays in the Nexus page's
+`sessionStorage` under `nexus.navigation.views.v1:<owner>:<module>`, at most 16 KiB per entry
+and the 40 most recent entries per module. A pushed entry gets a new ID and a replaced entry
+keeps its own. Sign-out and uninstall clear it. It is best effort and never blocks navigation.
+
+A module returns this object from `captureView`, and receives it back as `message.viewState`.
+It is captured for the entry on screen before the host moves on, which matters because the
+browser has already changed entries by the time a `popstate` reaches Nexus. A new tab has none
+of it, so a copied URL opens the record with default view settings.
+
 ## Module loading and iframe lifecycle
 
 The host authenticates the owner and loads module metadata before showing the
@@ -155,9 +128,10 @@ SDK they do not implement.
 ## Shared transport and client API
 
 The existing `empyrean-v1` API/context/external/module-switch bridge remains in
-place. Its `navigate` action takes a target module ID or `nexus`, not an internal
-route. Successful switching currently has no reply; avoid making teardown depend
-on that old request's promise settling. The opt-in extension uses the separate
+place. Its `navigate` action takes a target module ID or `nexus`, plus an optional
+`path` for the target's bootstrap grammar (`^/[a-zA-Z0-9/_-]*$`; since Nexus 0.1.14),
+which is how backlinks open an exact record. Successful switching has no reply; avoid
+making teardown depend on that old request's promise settling. The opt-in extension uses the separate
 `empyrean-navigation-v1` channel.
 
 All extension messages contain `channel`. The important fields are:
@@ -166,14 +140,15 @@ All extension messages contain `channel`. The important fields are:
 | --- | --- |
 | Host `probe` | `challenge`; refreshed per frame load |
 | Child `hello` | `version:1`, `document`, optional/current `challenge`; an initial hello without the right challenge elicits a probe |
-| Host `restore` | `document`, `session`, increasing `revision`, `route`, `legacy`, `cause`; initial restore also includes `checkpoint` or null |
-| Child `commit` | `session`, `baseRevision`, `route`, `mode:'push'|'replace'`; one outstanding client intent; host rejects while leaving or when stale |
-| Child `applied` | `session`, `revision`, `status`; current SDK emits `ok` or `error`; host also accepts `not-found` |
+| Host `restore` | `document`, `session`, increasing `revision`, `route`, `legacy`, `cause`; `viewState` for that entry except on a commit echo; initial restore also includes `checkpoint` or null |
+| Child `commit` | `session`, `baseRevision`, `route`, `mode:'push'|'replace'`, optional `viewState` of the entry being left; one outstanding client intent; host rejects while leaving or when stale |
+| Child `view-state` | `session`, `revision`, object `value`; debounced update for the entry on screen; dropped when stale |
+| Child `applied` | `session`, `revision`, `status`: `ok`, `not-found` (the module is showing its own outcome; no host error) or `error` |
 | Host `reject` | `session`, `revision`, `code`; stale intent also triggers resynchronization, never automatic rebasing |
 | Child `checkpoint` | `session`, positive integer `id`, object `value`; bounded JSON snapshot |
 | Host `checkpointed` | `session`, `id`, optional `error`; acknowledges storage or explicit failure |
 | Host `prepare-leave` | `session`, increased `revision`, `id`; invalidates pending navigation and invokes the module's `beforeLeave` callback |
-| Child `prepared` | `session`, `id`, optional `error`; host can then render the latest target or retain the editor on failure |
+| Child `prepared` | `session`, `id`, optional `error`, optional `viewState`; host can then render the latest target or retain the editor on failure |
 
 Host restore causes currently include `initial`, `commit`, `resync`, `resume`,
 `traversal` and `navigate`. Do not use the cause string as authorization. The
@@ -182,16 +157,18 @@ guard asynchronous writes. An incoming restore/leave invalidates pending work.
 
 | SDK member | Caller responsibility |
 | --- | --- |
-| `EmpyreanNavigation.createClient({apply,invalidate,onError,beforeLeave})` | Install callbacks before starting. `beforeLeave` defaults to a no-op: importing the SDK alone supplies no draft safety. |
-| `await client.start(context)` | Use the existing application `context` result. Returns false for unsupported hosts/standalone windows; retain a legacy driver. |
+| `EmpyreanNavigation.createClient({apply,invalidate,onError,beforeLeave,captureView})` | Install callbacks before starting. `beforeLeave` defaults to a no-op: importing the SDK alone supplies no draft safety. `apply` throws on failure and returns `'not-found'` after rendering its own outcome. |
+| `await client.start(context)` | Use the existing application `context` result. Resolves false for unsupported hosts/standalone windows and true once negotiated; **rejects on timeout**. Keep a legacy driver for both. Calling it again after a rejection starts a clean attempt. |
 | `await client.navigate(reference, mode)` | Validate/save/guard first. Sends one intent; a second pending intent is rejected rather than queued/coalesced. |
 | `await client.checkpoint(object)` | Supply module-owned JSON and await storage acknowledgment where safety depends on it. Before negotiation it resolves without storage. |
-| `client.enabled`, `client.revision`, `client.route` | Runtime negotiation/revision state, not auth credentials |
+| `client.viewChanged()` | The private view state of the entry on screen changed (debounced; scrolling is noticed automatically when `captureView` exists). |
+| `client.status` | `idle`, `handshaking`, `ready`, `failed` or `unsupported` |
+| `client.enabled`, `client.revision`, `client.route` | `enabled` is true only with a granted session and false again after a failed handshake. Runtime state, not auth credentials |
 
-The current `navigate()` promise can resolve after a restore callback reports an
-application error; use `onError`, module error UI and host status as well. Promise
-resolution alone is not proof that the target resource rendered successfully.
-`apply` return values do not select an `applied` status: throw on failure.
+`navigate()` resolves with `{...message, status}` once the restore was applied, and
+`status` says whether the target actually rendered. A superseded restore does nothing: an
+adapter that sets its "shown route" before loading must clear it when `isCurrent()` turns
+false, or the following restore of the same route is skipped.
 
 Current bounds: 40 commits/second and 100 checkpoints/second per bound frame,
 2048-byte references, 1 MiB serialized checkpoint, five hello attempts at 500 ms
@@ -200,15 +177,15 @@ deadline and 20-second host restore acknowledgment deadline. Browser storage
 quotas can be lower than the snapshot limit. These are pilot constants in the SDK,
 not operator settings or durable delivery guarantees.
 
-## Adopting the pilot in another module
+## Adopting the contract in another module
 
-No automatic migration is enabled. Review a module-specific integration first:
+Review a module-specific integration first:
 
 1. Vendor the dependency-free SDK from Nexus, keep attribution, and bundle it
    inline using the module's existing HTML packaging. Do not load it from a CDN
-   or add same-origin/network CSP privileges. The current sync script is fixed to
-   Mnemosyne; it is not a general module installer. `node scripts/sync-navigation.mjs --check`
-   verifies the existing copy; the command without `--check` writes that copy.
+   or add same-origin/network CSP privileges. Add the module to the list in
+   `scripts/sync-navigation.mjs`. `node scripts/sync-navigation.mjs --check` verifies every
+   copy; the command without `--check` writes them.
 2. Define a strict module-owned parse/serialize codec using stable IDs. Preserve
    old bootstrap/resource paths. Decide which views are shareable and which
    ephemeral/private state stays out of URLs.
@@ -229,10 +206,29 @@ No automatic migration is enabled. Review a module-specific integration first:
    stale messages and module lifecycle. Do not claim a new module is supported
    merely because its manifest grants `ui.application`.
 
-Mnemosyne's [integration notes](../../mnemosyne/docs/NAVIGATION_HISTORY.md),
+Six adapters now exist, each module's `frontend/navigation.js`. Mnemosyne's
+[integration notes](../../mnemosyne/docs/NAVIGATION_HISTORY.md),
 [`navigation-routes.js`](../../mnemosyne/frontend/navigation-routes.js) and
 [`navigation.js`](../../mnemosyne/frontend/navigation.js) are the first worked
 example, not a generic domain router for every AE module.
+
+### Route references per module
+
+| Module | References | Private per-entry state |
+| --- | --- | --- |
+| Meridian | `/`, `/people[/<id>]`, `/organizations[/<id>]`, `/groups[/<id>]`, `/interactions/<id>`, `/graph`, `/timeline`, `/import`, `/trash`, `/settings` | directory search, filters, sort, loaded count, contact tab, scroll |
+| Mnemosyne | see its integration notes | checkpointed search |
+| Lyra | `/`, `/series`, `/movies`, `/discover`, `/history`, `/series/<id>`, `/movie/<id>`, `/preview/<movie\|tv>/<tmdb>` | search text, status filters, open season, scroll |
+| Chronos | `/<month\|week\|day\|agenda>/<date>`, `/events/<id>[?o=&view=&date=]`, `/projected/<provider>?item=&view=&date=` | search text, category filter, agenda range, scroll |
+| Atlas | `/`, `/library`, `/categories`, `/trash`, `/settings`, `/places/<id>[?section=]`, `/map/contact` | who is selected, map position, library search, scroll |
+| Argus | `/`, `/photos/<id>`, `/people`, `/clusters/<id>`, `/import`, `/trash`, `/settings`, bootstrap `/pick/...` | loaded count, scroll, import folder, typed settings |
+
+An unknown or malformed reference, and a record that does not exist, render an explicit
+not-found view and keep their address. No module falls back to an unrelated screen.
+
+A list arrow inside a module (Lyra's title header, Chronos's and Atlas's close button) is an
+ordinary push to the parent view. Browser Back is the traversal. The contract has route
+commits, not a traversal command, and none was added.
 
 ## Draft recovery and security boundaries
 
@@ -245,31 +241,40 @@ The child cannot directly access parent storage. Only its own snapshot is sent
 back on initial restore. The owner/host administrator and compromised parent code
 remain within the trust boundary; Janus vault data must not use this mechanism.
 
-Mnemosyne posts edits asynchronously and takes an acknowledged final checkpoint
-before parent SPA navigation/unmount. Click navigation retains its save/conflict
-guard. Native history traversal cannot be canceled; a failed save retains a copy
-and provides recovery in the original workspace. Recovering differing saved/draft
-versions preserves the draft's original revision so existing conflict rules still
-apply. Quick-capture input is also retained. Sign-out warns before deleting dirty
-tab checkpoints, uninstall removes that module's copy, and saved/discarded editor
-copies are reconciled by later checkpoints. Opening a deep link still requires
-owner authentication and normal module/resource checks.
+### Unsaved editors while the address moves
+
+Native traversal cannot be cancelled, and pushing the old page back would destroy the Forward
+branch, so no module ever does that. The rule in every adapter:
+
+| Situation | What happens |
+| --- | --- |
+| A click inside the module | The module asks first, before any navigation |
+| Browser Back/Forward with an unsaved modal editor (Meridian's side panel, Chronos's event editor, Atlas's Place editor) | The address moves. **The screen and the editor stay**, with a notice. Nothing is written to history, so Forward still works. Going back to the editor's address clears the notice; saving or discarding shows the page the address names |
+| Leaving the module (Nexus launcher, backlink, sign-out) | `beforeLeave` stores an acknowledged checkpoint, and on return a tray offers **Resume** or **Discard** |
+| Reload or tab restore | The checkpoint written about 400 ms after the last keystroke is offered the same way |
+| The checkpoint cannot be stored | The leave is refused, the editor stays open, and Nexus shows why |
+| A field that saves itself (Lyra's notes, Argus's photo title) | Saved on the way out, since a traversal does not blur it. A Lyra note that cannot be saved becomes a draft; an Argus title that cannot be saved keeps the photo on screen |
+| A recovered draft meets a newer saved record (Meridian contacts) | The save is refused as a conflict with the text intact, and the owner can choose **Keep my version**. Sections the draft did not touch keep the newer values |
+
+Mnemosyne keeps its autosave model: edits post asynchronously with an acknowledged final
+checkpoint, a failed save retains a copy, and recovering differing versions keeps the draft's
+original revision so its conflict rules still apply. Sign-out warns before deleting dirty
+tab checkpoints, uninstall removes that module's copy.
 
 If leave/checkpoint fails or times out, the parent reports the failure and retains
 the editor. The requested browser address may temporarily differ from that editor;
-the host does not call `history.go(1)` to force the browser back. Full-document
-reload/close does not run the SPA leave handshake: it relies on snapshots already
-acknowledged and Mnemosyne's existing `beforeunload` warning. A tab/browser crash,
-cleared storage, quota failure or a very recent unacknowledged edit is not covered
-by an unconditional no-loss guarantee. Search text is kept in tab checkpoints,
-not shareable URLs; a clean tab gets an empty search prompt.
+the host does not call `history.go(1)` to force the browser back. Sandboxed frames cannot
+show a `beforeunload` prompt, so a very recent unacknowledged edit, a crash, cleared storage
+or a quota failure is not covered by an unconditional no-loss guarantee. Secrets are never
+checkpointed: Lyra's TMDB credential field is excluded. In-progress Argus uploads stop if the
+frame is replaced, as they always have. Search text is kept in tab state, not shareable URLs.
 
 Navigation is not an authorization grant. Host messages require the connected,
 active enabled application's `contentWindow`; comparing an opaque `null` origin
 alone is insufficient. The client checks parent source and expected origin.
 Challenge/session/revision fences prevent obsolete documents/intents from
 controlling a replacement view. Parent-to-opaque-child `'*'` replies are restricted
-to the bound frame; no auth credentials are included. Draft payloads can contain
+to the bound frame; no auth credentials are included. Draft and view payloads can contain
 private user text by design, so do not describe the channel as carrying only route
 metadata. Existing HTTP APIs continue to enforce owner sessions, CSRF and module
 gateway keys independently. No blanket sandbox, external-origin trust or capability
@@ -277,33 +282,12 @@ expansion is introduced.
 
 ## Validation and remaining gates
 
-[Recorded real-app evidence](proposals/navigation-history/pilot-evidence/chrome-results.json)
-contains 16 scenarios on Chrome 157.0.8103.39 / Playwright 1.64.1 / Windows:
-authenticated direct links; Notes/Tasks and task-detail Back/Forward; unchanged
-Chronos switching; reload; synthetic CDP Mouse4/5; successful-save, quick-capture,
-failed-save and real revision-conflict recovery; workspace links; preview/search;
-missing resources; legacy paths; sign-out warning/session revocation.
+The current evidence is the [P1 validation record](../../VALIDATION_P1_NAVIGATION_AETEST_2026-11-09.md),
+produced by `tests/e2e/universal_navigation_e2e.cjs` against real aetest containers. The
+earlier pilot evidence is in [PILOT.md](proposals/navigation-history/PILOT.md). Automated
+traversal is not hardware: a physical Mouse 4/5, the browser's own Alt+Left/Right handling and
+a real phone remain the owner's checks.
 
-The test uses actual Nexus, Mnemosyne and Chronos HTML, APIs, databases and gateway
-over loopback HTTP. Only container lifecycle is substituted with a disposable
-process launcher. Browser PUT-failure injection tests recovery; the conflict is
-from the real backend. This is stronger than the original synthetic fixture and
-still not a production/container-broker deployment test.
-
-Recorded suites: 24 Nexus frontend/SDK, 13 Mnemosyne frontend/codec, 46 affected
-Nexus backend and 30 Mnemosyne backend tests passed. Full Nexus: 200 passed, one
-opt-in browser test skipped, two existing Windows oversized-SVG pytest fixture
-errors. The separate `shutil.disk_usage` change resolved the `os.statvfs` failure;
-its portability test and the prior locale test passed. [PILOT.md](proposals/navigation-history/PILOT.md)
-has reproduction details, warning/environment notes and the implementation file
-inventory. These are recorded implementation runs; documentation synchronization
-does not imply a new test run or production verification.
-
-Remaining gates include Firefox/WebKit, physical mouse hardware, BFCache,
-container/image/broker lifecycle, session-expiry/relogin, disabled/uninstalled
-module behavior under live transitions, quota/checkpoint timeout recovery,
-rapid traversal under slow APIs, HTTP LAN origin handling, and deployment-specific
-authentication/proxy/CSP verification. Some defensive paths have unit coverage;
-that is not equivalent to real-app browser sign-off for all failure combinations.
-The SDK, snapshot schema and module adoption remain pilot contracts pending that
-review. No production rollout, other-module migration, commit or push is implied.
+When writing a browser test, note that Nexus changes the address before a leave finishes, so
+wait for the frame to be replaced before treating the module as left. WebKit's Back can skip
+entries created by script with no user gesture, so build test history with real clicks.

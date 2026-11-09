@@ -555,6 +555,7 @@ async function renderView({ transition = false, focus = false, changed = null, a
   document.querySelector('#product-name').textContent = module?.manifest.name || system.name;
   const pageTitle = view.name === 'module' ? (module?.manifest.name || 'Module') : view.name === 'not-found' ? 'Not found' : view.name.charAt(0).toUpperCase() + view.name.slice(1);
   document.title = `${pageTitle} · Empyrean Nexus`;
+  activityView = null;
   if (view.name === 'overview') await renderOverview(content, epoch);
   else if (view.name === 'modules') renderModules(content);
   else if (view.name === 'settings') renderSettings(content);
@@ -563,7 +564,7 @@ async function renderView({ transition = false, focus = false, changed = null, a
     try {
       const data = await api('/activity/entries');
       if (epoch !== renderEpoch) return;
-      renderActivity(content, data);
+      await renderActivity(content, data);
     } catch (error) { if (epoch === renderEpoch) content.innerHTML = heading('Activity') + `<p role="alert" class="error-text">${esc(error.message)}</p>`; }
   } else if (view.name === 'notifications') {
     content.innerHTML = heading('Notifications', '', 'Messages from Nexus and your modules, newest first.') + `<section class="notification-history">${notificationItems(notices)}</section>`;
@@ -1085,10 +1086,22 @@ function activityRow(item) {
   const a = activityText(item);
   return `<li class="activity-row tone-${a.tone || 'normal'}">${icon(a.glyph, 'activity-glyph')}<div class="activity-text"><span>${esc(a.text)}</span>${showCodes ? `<code>${esc(item.kind)} · ${esc(item.subject)}</code>` : ''}</div><span class="activity-actor">${esc(item.actor)}</span><time datetime="${esc(item.occurred_at)}" title="${esc(date(item.occurred_at))}">${esc(clock(item.occurred_at))}</time></li>`;
 }
-function renderActivity(content, data) {
+/* How far Activity was read and scrolled, per browser history entry (never in the URL). */
+const ACTIVITY_VIEW = 'nexus-activity';
+let activityView = null, activityViewTimer;
+function saveActivityView() {
+  clearTimeout(activityViewTimer);
+  const current = activityView;
+  if (current) activityViewTimer = setTimeout(() => navigation.writeEntryView(ACTIVITY_VIEW, current.entry, {pages:current.pages, scroll:current.scroll}), 200);
+}
+window.addEventListener('scroll', () => { if (activityView) { activityView.scroll = window.scrollY; saveActivityView(); } }, {passive:true});
+async function renderActivity(content, data) {
+  const entry = navigation.currentEntry();
+  const saved = navigation.readEntryView(ACTIVITY_VIEW, entry);
+  const epoch = renderEpoch;
   content.innerHTML = heading('Activity', '', 'What happened on this platform, newest first.') + '<div class="activity" id="activity-list"></div><div id="activity-more"></div>';
   const heads = document.querySelector('#heading-action');
-  heads.append(action('Refresh', () => renderView(), 'quiet', 'Refreshing…'));
+  heads.append(action('Refresh', () => { navigation.writeEntryView(ACTIVITY_VIEW, entry, {pages:1, scroll:0}); return renderView(); }, 'quiet', 'Refreshing…'));
   const codes = document.createElement('button');
   codes.type = 'button'; codes.className = 'quiet'; codes.setAttribute('aria-pressed', String(showCodes)); codes.textContent = showCodes ? 'Hide event codes' : 'Show event codes';
   codes.onclick = () => { showCodes = !showCodes; renderView(); };
@@ -1108,17 +1121,26 @@ function renderActivity(content, data) {
     });
   };
   append(data.items);
-  let cursor = data.next_cursor;
-  if (data.has_more) {
+  let cursor = data.next_cursor, more = data.has_more, pages = 1;
+  // Returning to this entry: load as far as it had been read, within reason.
+  while (more && pages < Math.min(saved?.pages || 1, 20)) {
+    const page = await api('/activity/entries?before=' + cursor);
+    if (epoch !== renderEpoch) return;
+    append(page.items); cursor = page.next_cursor; more = page.has_more; pages++;
+  }
+  activityView = {entry, pages, scroll:saved?.scroll || 0};
+  if (more) {
     const button = action('Load earlier activity', async () => {
       const epoch = renderEpoch;
       const page = await api('/activity/entries?before=' + cursor);
       if (epoch !== renderEpoch) return;
       append(page.items); cursor = page.next_cursor;
+      if (activityView) { activityView.pages++; saveActivityView(); }
       if (!page.has_more) button.remove();
     }, 'quiet', 'Loading…');
     document.querySelector('#activity-more').append(button);
   }
+  if (saved?.scroll) window.scrollTo(0, saved.scroll);
 }
 function safeReleaseURL(value) { try { const url = new URL(value); return url.protocol === 'https:' && !url.username && !url.password ? url.href : null; } catch { return null; } }
 function releaseDialog() {
