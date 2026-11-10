@@ -139,7 +139,18 @@ async function cleanup(page) {
       for (const id of [FX.ix1, FX.ix2]) if (id) await call(f, `/interactions/${id}`, "DELETE").catch(() => {});
       for (const id of [FX.a, FX.b, FX.c]) if (id) { await call(f, `/people/${id}`, "DELETE").catch(() => {}); await f.evaluate((x) => api(`/trash/${x}?confirm=true`, "DELETE"), id).catch(() => {}); }
     }],
-    ["chronos", async (f) => { for (const id of [FX.e1, FX.e2]) if (id) await call(f, `/events/${id}`, "DELETE").catch(() => {}); }],
+    ["chronos", async (f) => {
+      // A repeating event needs an explicit scope, and since Chronos 0.6.0 deleting moves to Trash.
+      for (const [id, target] of [[FX.e1, ""], [FX.e2, "?scope=series"]]) {
+        if (!id) continue;
+        try {
+          const deleted = await call(f, `/events/${id}${target}`, "DELETE");
+          if (deleted.trash) await call(f, `/trash/${deleted.trash}?confirmed=true`, "DELETE");
+        } catch (error) {
+          console.log(`cleanup chronos ${id}: ${error.message.slice(0, 160)}`);
+        }
+      }
+    }],
     ["atlas", async (f) => { for (const id of [FX.p1, FX.p2]) if (id) { await call(f, `/places/${id}`, "DELETE").catch(() => {}); await call(f, `/trash/${id}`, "DELETE").catch(() => {}); } }],
     ["argus", async (f) => { for (const id of [FX.ph1, FX.ph2]) if (id) { await call(f, `/photos/${id}`, "DELETE").catch(() => {}); await call(f, `/photos/${id}/purge?confirm=true`, "DELETE").catch(() => {}); } }],
   ];
