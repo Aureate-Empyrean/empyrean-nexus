@@ -146,6 +146,18 @@ function localAppItem(a) {
   const src = `/api/v1/local-apps/${encodeURIComponent(a.id)}/icon?v=${encodeURIComponent(a.icon_sha256)}`;
   return `<a class="launcher-item launcher-local" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" data-local-app="${esc(a.id)}" title="${esc(a.description || a.name)}"><span class="monogram has-icon" aria-hidden="true" data-letter="${esc(letter)}"><img src="${esc(src)}" alt="" decoding="async" draggable="false"></span><span class="launcher-text"><strong>${esc(a.name)}</strong><small>Local · ${esc(a.label)}</small></span>${icon('open', 'tick')}<span class="sr-only"> (opens in a new tab)</span></a>`;
 }
+function localTile(a) {
+  const letter = [...a.name.trim()][0]?.toUpperCase() || '?';
+  const src = `/api/v1/local-apps/${encodeURIComponent(a.id)}/icon?v=${encodeURIComponent(a.icon_sha256)}`;
+  return `<span class="monogram has-icon" aria-hidden="true" data-letter="${esc(letter)}"><img src="${esc(src)}" alt="" decoding="async" draggable="false"></span>`;
+}
+const LOCAL_STATUS = { running: ['Running', 'good'], unhealthy: ['Unhealthy', 'bad'], unavailable: ['Unavailable', 'idle'], unchecked: ['Not checked', 'neutral'] };
+function localStatusPill(a) {
+  const [label, tone] = LOCAL_STATUS[a.status?.state] || LOCAL_STATUS.unchecked;
+  return `<span class="status tone-${tone}"><span class="status-dot"></span>${esc(label)}</span>`;
+}
+/** A local application that supersedes this module, while the module is not running. */
+const replacedBy = m => m.state !== 'enabled' ? localApps.find(a => a.replaces === m.id) : undefined;
 // No valid icon has been obtained yet (or it fails to decode): the letter tile.
 document.addEventListener('error', event => {
   const tile = event.target?.tagName === 'IMG' && event.target.closest('.monogram.has-icon');
@@ -421,10 +433,10 @@ let shownSignature = '';
 const moduleSignature = (sys, mods, notes) => JSON.stringify([sys?.version, mods.map(m => [m.id, m.state, m.availability, m.health, m.manifest.version, m.manifest.container?.image]), notes.filter(n => !n.read).length]);
 async function refresh({ initial = false, changed = null, background = false } = {}) {
   const epoch = ++refreshEpoch;
-  if (initial) api('/local-apps').then(result => { localApps = result.apps || []; }, () => { localApps = []; });
-  const data = await Promise.all([api('/system'), api('/modules'), api('/notifications')]);
+  const [local, ...data] = await Promise.all([api('/local-apps').catch(() => ({ apps: [] })), api('/system'), api('/modules'), api('/notifications')]);
   if (epoch !== refreshEpoch || !username) return;
-  const signature = moduleSignature(...data);
+  localApps = local.apps || [];
+  const signature = moduleSignature(...data) + JSON.stringify(localApps.map(a => [a.id, a.status?.state]));
   if (background) {
     const key = m => m && [m.state, m.availability, m.manifest.version, m.manifest.container?.image].join('|');
     // Never reload an open module frame or repaint under a dialog or menu; nothing changed → no repaint.
@@ -593,28 +605,31 @@ async function renderView({ transition = false, focus = false, changed = null, a
 }
 
 async function renderOverview(content, epoch) {
-  const attention = modules.filter(m => status(m).attention);
-  const pending = modules.filter(m => status(m).tone === 'pending');
-  const running = modules.filter(m => status(m).running);
-  const unknown = modules.filter(m => status(m).unknown);
+  // A stopped module superseded by a local application is listed only in Modules (recovery).
+  const listed = modules.filter(m => !replacedBy(m));
+  const attention = listed.filter(m => status(m).attention);
+  const pending = listed.filter(m => status(m).tone === 'pending');
+  const running = listed.filter(m => status(m).running);
+  const unknown = listed.filter(m => status(m).unknown);
   const unavailable = attention.filter(m => status(m).unavailable);
   const unread = notices.filter(n => !n.read);
   const onlyUnavailable = attention.length && unavailable.length === attention.length;
   const tone = attention.length ? (onlyUnavailable ? 'pending' : 'bad') : pending.length || unknown.length ? 'pending' : 'good';
-  const headline = !modules.length ? 'Your platform is ready'
+  const headline = !listed.length ? 'Your platform is ready'
     : onlyUnavailable ? (unavailable.length === 1 ? `${esc(unavailable[0].manifest.name)} is unavailable` : `${unavailable.length} modules are unavailable`)
       : attention.length ? `${plural(attention.length, 'module needs', 'modules need')} attention`
         : pending.length ? `${esc(pending[0].manifest.name)} is ${status(pending[0]).label.replace('…', '').toLowerCase()}`
           : unknown.length ? 'Checking module status'
             : 'Everything is running normally';
-  const sub = [`Nexus ${esc(system.version)}`, modules.length ? `${running.length} of ${plural(modules.length, 'module', 'modules')} running${unavailable.length ? ` · ${unavailable.length} unavailable` : ''}${unknown.length ? ` · ${unknown.length} not checked yet` : ''}` : 'No modules installed', `${bytes(system.data_free_bytes)} free for data`].join(' · ');
-  const apps = modules.filter(m => m.state !== 'removing');
+  const sub = [`Nexus ${esc(system.version)}`, listed.length ? `${running.length} of ${plural(listed.length, 'module', 'modules')} running${unavailable.length ? ` · ${unavailable.length} unavailable` : ''}${unknown.length ? ` · ${unknown.length} not checked yet` : ''}` : 'No modules installed', `${bytes(system.data_free_bytes)} free for data`].join(' · ');
+  const apps = listed.filter(m => m.state !== 'removing');
+  const localRows = localApps.map(a => `<div class="overview-app" data-local-app="${esc(a.id)}">${localTile(a)}<div class="overview-app-text"><strong>${esc(a.name)}</strong><span>${localStatusPill(a)}<span class="quiet-text">Local · ${esc(a.label)}</span></span></div><a class="button-link small" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer">Open<span class="sr-only"> ${esc(a.name)} in a new tab</span></a></div>`).join('');
   content.innerHTML = `<section class="hero tone-${tone}"><div class="hero-orb" aria-hidden="true">${icon(tone === 'bad' ? 'alert' : tone === 'pending' ? 'refresh' : 'check')}</div><div class="hero-text"><p class="eyebrow">${esc(system.name)}</p><h1 tabindex="-1">${headline}</h1><p class="hero-sub">${sub}</p></div><div class="heading-actions" id="heading-action"></div></section>
     ${attention.length ? `<section class="attention" aria-label="Needs attention">${attention.map(m => `<div class="attention-row" data-module-id="${esc(m.id)}">${monogram(m)}<div class="attention-text"><strong>${esc(m.manifest.name)} · ${esc(status(m).label)}</strong><span>${esc(status(m).hint || '')}</span></div><div class="attention-actions" data-attention="${esc(m.id)}"></div></div>`).join('')}</section>` : ''}
     ${unread.length ? `<button type="button" class="notice-line" id="unread-line">${icon('bell')}<span>${plural(unread.length, 'unread notification', 'unread notifications')}</span>${icon('chevronRight', 'end')}</button>` : ''}
     <div class="overview-grid">
       <section class="overview-section" aria-labelledby="apps-heading"><header class="section-head"><h2 id="apps-heading">Modules</h2><a data-route href="${routes.modules}" class="section-link">Manage${icon('chevronRight')}</a></header>
-        ${apps.length ? `<div class="overview-apps">${apps.map(m => `<div class="overview-app" data-module-id="${esc(m.id)}">${monogram(m)}<div class="overview-app-text"><strong>${esc(m.manifest.name)}</strong><span>${statusPill(m)}<span class="quiet-text">v${esc(m.manifest.version)}</span></span></div>${canOpen(m) ? `<a data-route class="button-link small" href="/app/modules/${esc(m.id)}">Open</a>` : ''}</div>`).join('')}</div>`
+        ${apps.length || localRows ? `<div class="overview-apps">${localRows}${apps.map(m => `<div class="overview-app" data-module-id="${esc(m.id)}">${monogram(m)}<div class="overview-app-text"><strong>${esc(m.manifest.name)}</strong><span>${statusPill(m)}<span class="quiet-text">v${esc(m.manifest.version)}</span></span></div>${canOpen(m) ? `<a data-route class="button-link small" href="/app/modules/${esc(m.id)}">Open</a>` : ''}</div>`).join('')}</div>`
           : `<div class="empty-inline"><p>Modules are the applications this platform runs — notes, places, people. Install one from its reviewed manifest.</p><button type="button" class="primary" id="overview-install">${icon('plus')}Install a module</button></div>`}
       </section>
       <section class="overview-section" aria-labelledby="recent-heading"><header class="section-head"><h2 id="recent-heading">Recent activity</h2><a data-route href="${routes.activity}" class="section-link">All activity${icon('chevronRight')}</a></header><div id="overview-activity">${skeleton()}</div></section>
@@ -644,7 +659,7 @@ async function renderOverview(content, epoch) {
 
 function moduleRow(m) {
   const s = status(m);
-  return `<article class="module-row" data-module-id="${esc(m.id)}" tabindex="0" role="listitem" aria-label="${esc(m.manifest.name)}, ${esc(s.label)}">${monogram(m)}<div class="module-main"><div class="module-title"><h3>${esc(m.manifest.name)}</h3><span class="version">v${esc(m.manifest.version)}</span>${isApplication(m) ? '' : '<span class="tag">Service</span>'}</div><p class="module-desc">${esc(m.manifest.description || '')}</p></div><div class="module-state">${statusPill(m)}${s.hint ? `<small>${esc(s.hint)}</small>` : ''}</div><div class="actions" data-actions="${esc(m.id)}"></div></article>`;
+  return `<article class="module-row" data-module-id="${esc(m.id)}" tabindex="0" role="listitem" aria-label="${esc(m.manifest.name)}, ${esc(s.label)}">${monogram(m)}<div class="module-main"><div class="module-title"><h3>${esc(m.manifest.name)}</h3><span class="version">v${esc(m.manifest.version)}</span>${isApplication(m) ? '' : '<span class="tag">Service</span>'}</div><p class="module-desc">${esc(m.manifest.description || '')}</p></div><div class="module-state">${statusPill(m)}${replacedBy(m) ? `<small>Replaced by ${esc(replacedBy(m).name)} at ${esc(replacedBy(m).label)}. Hidden from Overview; its data is kept and Start restores it.</small>` : s.hint ? `<small>${esc(s.hint)}</small>` : ''}</div><div class="actions" data-actions="${esc(m.id)}"></div></article>`;
 }
 function renderModules(content) {
   const running = modules.filter(m => m.state === 'enabled').length;

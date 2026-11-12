@@ -947,7 +947,7 @@ def create_app(data_dir=None, runtime=None, transport=None):
 
     from nexus.local_apps import add_local_app_routes
 
-    add_local_app_routes(app, require_owner)
+    add_local_app_routes(app, require_owner, transport)
 
     @app.get("/api/v1/module/context")
     def module_context(module=Depends(require_module)):

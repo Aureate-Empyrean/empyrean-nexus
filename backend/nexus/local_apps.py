@@ -5,27 +5,40 @@ such as the private Zeus control panel. `NEXUS_LOCAL_APPS` names a JSON file (mo
 read-only) with up to eight entries:
 
     [{"id": "zeus-local", "name": "Zeus", "description": "...",
-      "url": "http://127.0.0.1:65333/", "icon": "zeus.svg"}]
+      "url": "http://127.0.0.1:65333/", "icon": "zeus.svg",
+      "health": "/health", "replaces": "zeus"}]
 
 Each URL must be a loopback address, so a launcher entry can never point to another machine.
 The icon is a file next to the JSON file. Nexus validates it exactly like a module icon and
 serves its own copy to the owner, so the browser never loads an image from elsewhere. Without
 the variable (every server installation, including Exodus) the list is empty. A configured but
 invalid file stops Nexus with a clear error instead of being silently ignored.
+
+Optional `health` is a path Nexus probes (GET, 2 s, no redirects, cached 15 s) to show the
+application's real status; a Nexus that runs in a container reaches the host through
+`NEXUS_LOCAL_APPS_PROBE_HOST` (for example host.docker.internal) while sending the configured
+loopback address as the Host header. Optional `replaces` names a module this application
+supersedes: while that module is not running, user-facing listings show this application
+instead. The module itself, its data and its recovery actions in Modules are unchanged.
 """
 
 import hashlib
 import json
 import os
 import re
+import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import httpx
 from fastapi import Depends, HTTPException, Request, Response
 
 from nexus.icons import HEADERS, MODULE_ID, TYPES, IconError, validate
 
 ENV = "NEXUS_LOCAL_APPS"
+PROBE_HOST_ENV = "NEXUS_LOCAL_APPS_PROBE_HOST"
+PROBE_SECONDS = 15
+HOSTNAME = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 MAX_APPS = 8
 
@@ -46,8 +59,18 @@ def load_local_apps(path: str | None) -> list[dict]:
         raise LocalAppError(f"{ENV}: expected a list of 1 to {MAX_APPS} applications")
     apps, seen = [], set()
     for entry in entries:
-        if not isinstance(entry, dict) or set(entry) - {"id", "name", "description", "url", "icon"}:
-            raise LocalAppError(f"{ENV}: each application has only id, name, description, url, icon")
+        if not isinstance(entry, dict) or set(entry) - {
+            "id",
+            "name",
+            "description",
+            "url",
+            "icon",
+            "health",
+            "replaces",
+        }:
+            raise LocalAppError(
+                f"{ENV}: each application has only id, name, description, url, icon, health, replaces"
+            )
         app_id = entry.get("id")
         if not isinstance(app_id, str) or not MODULE_ID.fullmatch(app_id) or app_id in seen:
             raise LocalAppError(f"{ENV}: invalid or duplicate application id")
@@ -80,6 +103,19 @@ def load_local_apps(path: str | None) -> list[dict]:
             media_type = validate(content, TYPES[icon.rsplit(".", 1)[1].lower()], icon)
         except (OSError, IconError) as exc:
             raise LocalAppError(f"{ENV}: {app_id} icon is missing or not a valid icon") from exc
+        health = entry.get("health")
+        if health is not None and (
+            not isinstance(health, str)
+            or not re.fullmatch(r"/[A-Za-z0-9._/-]{0,100}", health)
+            or "//" in health
+            or ".." in health
+        ):
+            raise LocalAppError(f"{ENV}: {app_id} health must be a plain path such as /health")
+        replaces = entry.get("replaces")
+        if replaces is not None and (
+            not isinstance(replaces, str) or not MODULE_ID.fullmatch(replaces)
+        ):
+            raise LocalAppError(f"{ENV}: {app_id} replaces must be a module id")
         host = f"[{url.hostname}]" if ":" in url.hostname else url.hostname
         apps.append(
             {
@@ -88,6 +124,11 @@ def load_local_apps(path: str | None) -> list[dict]:
                 "description": description,
                 "url": url.geturl(),
                 "label": f"{host}:{port}",
+                "netloc": f"{host}:{port}",
+                "scheme": url.scheme,
+                "port": port,
+                "health": health,
+                "replaces": replaces,
                 "media_type": media_type,
                 "content": content,
                 "sha256": hashlib.sha256(content).hexdigest(),
@@ -96,16 +137,47 @@ def load_local_apps(path: str | None) -> list[dict]:
     return apps
 
 
-def add_local_app_routes(app, require_owner):
+def probe_host() -> str | None:
+    host = os.getenv(PROBE_HOST_ENV) or None
+    if host and not HOSTNAME.fullmatch(host):
+        raise LocalAppError(f"{PROBE_HOST_ENV} must be a host name")
+    return host
+
+
+def add_local_app_routes(app, require_owner, transport=None):
     apps = {a["id"]: a for a in load_local_apps(os.getenv(ENV))}
+    gateway = probe_host()
+    checks = {}
     app.state.local_apps = apps
+
+    def status(entry):
+        """The application's own health answer; never a guess from configuration."""
+        if not entry["health"]:
+            return {"state": "unchecked", "checked_at": None}
+        cached = checks.get(entry["id"])
+        if cached and time.monotonic() - cached[0] < PROBE_SECONDS:
+            return cached[1]
+        target = f"{entry['scheme']}://{gateway or entry['netloc']}"
+        if gateway:
+            target += f":{entry['port']}"
+        try:
+            with httpx.Client(
+                transport=transport, timeout=2, follow_redirects=False, trust_env=False
+            ) as client:
+                answer = client.get(target + entry["health"], headers={"Host": entry["netloc"]})
+            state = "running" if answer.status_code == 200 else "unhealthy"
+        except httpx.HTTPError:
+            state = "unavailable"
+        result = {"state": state, "checked_at": int(time.time())}
+        checks[entry["id"]] = (time.monotonic(), result)
+        return result
 
     @app.get("/api/v1/local-apps")
     def local_apps(owner=Depends(require_owner)):
         return {
             "apps": [
-                {k: a[k] for k in ("id", "name", "description", "url", "label")}
-                | {"icon_sha256": a["sha256"]}
+                {k: a[k] for k in ("id", "name", "description", "url", "label", "replaces")}
+                | {"icon_sha256": a["sha256"], "status": status(a)}
                 for a in apps.values()
             ]
         }

@@ -127,3 +127,8 @@ beside a **local** Nexus but are not modules, for example the private Zeus panel
 - The switcher opens the application in a new tab.
 - Without the variable the list is empty, which is the case on every server installation.
 - An invalid file stops Nexus with a clear error.
+- Optional `health` (a path) makes Nexus show the application's real status. Nexus probes it
+  (GET, 2 s, cached 15 s); a containerized Nexus reaches the host through
+  `NEXUS_LOCAL_APPS_PROBE_HOST` and sends the configured loopback address as Host.
+- Optional `replaces` (a module id) hides that module from Overview and the switcher while it
+  is not running. Modules still lists it, marked as replaced, with Start to restore it.

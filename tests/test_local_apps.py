@@ -24,14 +24,15 @@ def write(directory, entries, icon=ICON):
     return path
 
 
-def nexus(tmp_path, monkeypatch, entries=None):
+def nexus(tmp_path, monkeypatch, entries=None, transport=None):
     data = tmp_path / "data"
     if entries is not None:
         monkeypatch.setenv("NEXUS_LOCAL_APPS", str(write(tmp_path, entries)))
     else:
         monkeypatch.delenv("NEXUS_LOCAL_APPS", raising=False)
     monkeypatch.setenv("NEXUS_PUBLIC_ORIGIN", "http://testserver")
-    client = TestClient(create_app(data, FakeRuntime(), httpx.MockTransport(lambda r: None)))
+    transport = transport or httpx.MockTransport(lambda r: httpx.Response(200))
+    client = TestClient(create_app(data, FakeRuntime(), transport))
     return client, data
 
 
@@ -89,6 +90,11 @@ def test_configured_app_is_listed_with_its_validated_icon_for_the_owner_only(tmp
         {"icon": "../zeus.svg"},
         {"name": ""},
         {"extra": "field"},
+        {"health": "health"},
+        {"health": "//evil.example/health"},
+        {"health": "/../health"},
+        {"health": "/health?x=1"},
+        {"replaces": "Zeus Module"},
     ],
 )
 def test_invalid_entries_stop_nexus_instead_of_being_ignored(tmp_path, change):
@@ -97,6 +103,62 @@ def test_invalid_entries_stop_nexus_instead_of_being_ignored(tmp_path, change):
 
 
 def test_active_svg_icons_are_refused(tmp_path):
-    active = ICON.replace(b"<title>", b'<script>alert(1)</script><title>')
+    active = ICON.replace(b"<title>", b"<script>alert(1)</script><title>")
     with pytest.raises(LocalAppError):
         load_local_apps(str(write(tmp_path, [ZEUS], icon=active)))
+
+
+def probes(answer):
+    seen = []
+
+    def handle(request):
+        seen.append((str(request.url), request.headers["host"]))
+        return answer(request)
+
+    return seen, httpx.MockTransport(handle)
+
+
+@pytest.mark.parametrize(
+    ("answer", "state"),
+    [
+        (lambda r: httpx.Response(200, json={"status": "available"}), "running"),
+        (lambda r: httpx.Response(503), "unhealthy"),
+        (lambda r: (_ for _ in ()).throw(httpx.ConnectError("refused")), "unavailable"),
+    ],
+)
+def test_status_comes_from_the_applications_own_health_answer(tmp_path, monkeypatch, answer, state):
+    monkeypatch.delenv("NEXUS_LOCAL_APPS_PROBE_HOST", raising=False)
+    seen, transport = probes(answer)
+    entry = {**ZEUS, "health": "/health", "replaces": "zeus"}
+    client, data = nexus(tmp_path, monkeypatch, [entry], transport)
+    with client:
+        sign_in(client, data)
+        app = client.get("/api/v1/local-apps").json()["apps"][0]
+        assert app["status"]["state"] == state and app["replaces"] == "zeus"
+        client.get("/api/v1/local-apps")  # cached: one probe per 15 s
+    assert seen == [("http://127.0.0.1:65333/health", "127.0.0.1:65333")]
+
+
+def test_containerized_nexus_probes_the_host_gateway_with_the_loopback_host(tmp_path, monkeypatch):
+    monkeypatch.setenv("NEXUS_LOCAL_APPS_PROBE_HOST", "host.docker.internal")
+    seen, transport = probes(lambda r: httpx.Response(200))
+    client, data = nexus(tmp_path, monkeypatch, [{**ZEUS, "health": "/health"}], transport)
+    with client:
+        sign_in(client, data)
+        assert client.get("/api/v1/local-apps").json()["apps"][0]["status"]["state"] == "running"
+    assert seen == [("http://host.docker.internal:65333/health", "127.0.0.1:65333")]
+
+
+def test_without_a_health_path_nothing_is_probed(tmp_path, monkeypatch):
+    seen, transport = probes(lambda r: httpx.Response(200))
+    client, data = nexus(tmp_path, monkeypatch, [ZEUS], transport)
+    with client:
+        sign_in(client, data)
+        assert client.get("/api/v1/local-apps").json()["apps"][0]["status"]["state"] == "unchecked"
+    assert seen == []
+
+
+def test_invalid_probe_host_stops_nexus(tmp_path, monkeypatch):
+    monkeypatch.setenv("NEXUS_LOCAL_APPS_PROBE_HOST", "http://evil.example/")
+    with pytest.raises(LocalAppError):
+        nexus(tmp_path, monkeypatch, [ZEUS])
