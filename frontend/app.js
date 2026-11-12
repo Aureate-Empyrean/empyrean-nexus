@@ -4,6 +4,8 @@ import { createRouter, routes } from './router.js';
 const app = document.querySelector('#app');
 const dialog = document.querySelector('#dialog');
 let csrf = '', username = '', system = null, modules = [], notices = [];
+// Private development applications beside Nexus (NEXUS_LOCAL_APPS); empty on servers.
+let localApps = [];
 let view = { name: 'overview' }, renderEpoch = 0, refreshEpoch = 0, toastTimer, dialogEpoch = 0;
 let openPopover = null, toastEpoch = 0, drawerId = null, showCodes = false;
 const pendingOps = new Map();
@@ -136,6 +138,13 @@ function monogram(m, size = '') {
     return `<span class="monogram has-icon ${size}" aria-hidden="true" data-letter="${esc(letter)}"><img src="${esc(src)}" alt="" decoding="async" draggable="false"></span>`;
   }
   return `<span class="monogram ${size}" aria-hidden="true">${esc(letter)}</span>`;
+}
+/** A private local application (not a module): its own validated icon, served by Nexus, and a
+ * plain link that opens its loopback address in a new tab. */
+function localAppItem(a) {
+  const letter = [...a.name.trim()][0]?.toUpperCase() || '?';
+  const src = `/api/v1/local-apps/${encodeURIComponent(a.id)}/icon?v=${encodeURIComponent(a.icon_sha256)}`;
+  return `<a class="launcher-item launcher-local" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer" data-local-app="${esc(a.id)}" title="${esc(a.description || a.name)}"><span class="monogram has-icon" aria-hidden="true" data-letter="${esc(letter)}"><img src="${esc(src)}" alt="" decoding="async" draggable="false"></span><span class="launcher-text"><strong>${esc(a.name)}</strong><small>Local · ${esc(a.label)}</small></span>${icon('open', 'tick')}<span class="sr-only"> (opens in a new tab)</span></a>`;
 }
 // No valid icon has been obtained yet (or it fails to decode): the letter tile.
 document.addEventListener('error', event => {
@@ -412,6 +421,7 @@ let shownSignature = '';
 const moduleSignature = (sys, mods, notes) => JSON.stringify([sys?.version, mods.map(m => [m.id, m.state, m.availability, m.health, m.manifest.version, m.manifest.container?.image]), notes.filter(n => !n.read).length]);
 async function refresh({ initial = false, changed = null, background = false } = {}) {
   const epoch = ++refreshEpoch;
+  if (initial) api('/local-apps').then(result => { localApps = result.apps || []; }, () => { localApps = []; });
   const data = await Promise.all([api('/system'), api('/modules'), api('/notifications')]);
   if (epoch !== refreshEpoch || !username) return;
   const signature = moduleSignature(...data);
@@ -514,7 +524,7 @@ function renderSwitcher() {
   const items = document.querySelector('#launcher-items');
   const current = view.name === 'module' ? view.id : 'nexus';
   const apps = modules.filter(m => m.state === 'enabled');
-  items.innerHTML = `<a data-route href="${routes.overview}" class="launcher-item${current === 'nexus' ? ' current' : ''}"><span class="launcher-glyph nexus" aria-hidden="true">${MARK}</span><span class="launcher-text"><strong>Nexus</strong><small>Control center</small></span>${current === 'nexus' ? icon('check', 'tick') : ''}</a>${apps.map(m => `<a data-route class="launcher-item${current === m.id ? ' current' : ''}" href="/app/modules/${m.id}">${monogram(m)}<span class="launcher-text"><strong>${esc(m.manifest.name)}</strong><small>${esc(status(m).label)} · v${esc(m.manifest.version)}</small></span>${current === m.id ? icon('check', 'tick') : ''}</a>`).join('')}<a data-route class="launcher-manage" href="${routes.modules}"><span class="launcher-slot" aria-hidden="true">${icon('modules')}</span><span>Manage modules</span>${icon('chevronRight', 'end')}</a>`;
+  items.innerHTML = `<a data-route href="${routes.overview}" class="launcher-item${current === 'nexus' ? ' current' : ''}"><span class="launcher-glyph nexus" aria-hidden="true">${MARK}</span><span class="launcher-text"><strong>Nexus</strong><small>Control center</small></span>${current === 'nexus' ? icon('check', 'tick') : ''}</a>${apps.map(m => `<a data-route class="launcher-item${current === m.id ? ' current' : ''}" href="/app/modules/${m.id}">${monogram(m)}<span class="launcher-text"><strong>${esc(m.manifest.name)}</strong><small>${esc(status(m).label)} · v${esc(m.manifest.version)}</small></span>${current === m.id ? icon('check', 'tick') : ''}</a>`).join('')}${localApps.map(localAppItem).join('')}<a data-route class="launcher-manage" href="${routes.modules}"><span class="launcher-slot" aria-hidden="true">${icon('modules')}</span><span>Manage modules</span>${icon('chevronRight', 'end')}</a>`;
 }
 function notificationItems(items) {
   return items.length ? items.map(n => `<article class="notification ${n.read ? '' : 'unread'}">${icon(n.source === 'nexus' ? 'spark' : 'message', 'notice-glyph')}<div><p>${esc(n.message)}</p><div class="notification-meta"><span>${esc(n.source === 'nexus' ? 'Nexus' : moduleName(n.source))}</span><span aria-hidden="true">·</span><time datetime="${esc(n.created_at)}" title="${esc(date(n.created_at))}">${esc(relative(n.created_at))}</time>${!n.read ? '<span class="unread-label">Unread</span>' : ''}</div></div></article>`).join('')

@@ -113,3 +113,17 @@ Native development can exercise setup, metadata and the UI; real container lifec
 ## License and community
 
 Copyright © 2026 Aureate Empyrean contributors. Software in this repository is licensed under **AGPL-3.0-or-later**; see [LICENSE](LICENSE). Forking, modifying and redistributing are legitimate. Generally useful improvements are encouraged upstream, without restricting independent forks. Names, logos, visual identity and official status are separate from the software license. A fork must not falsely present itself as an official Aureate Empyrean release.
+
+## Local applications in the switcher (development only)
+
+`NEXUS_LOCAL_APPS` may name a read-only JSON file listing up to eight applications that run
+beside a **local** Nexus but are not modules, for example the private Zeus panel:
+
+    [{"id": "zeus-local", "name": "Zeus", "url": "http://127.0.0.1:65333/", "icon": "zeus.svg"}]
+
+- Every URL must be a loopback address with a port.
+- The icon file sits next to the JSON file. Nexus validates it like a module icon and
+  serves its own copy to the owner at `/api/v1/local-apps/<id>/icon`.
+- The switcher opens the application in a new tab.
+- Without the variable the list is empty, which is the case on every server installation.
+- An invalid file stops Nexus with a clear error.
